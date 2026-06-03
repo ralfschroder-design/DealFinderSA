@@ -1,0 +1,33 @@
+{
+  "totalResults": 2,
+  "results": [
+    {
+      "Id": 1001,
+      "StockNumber": "WBC1001",
+      "Make": "Toyota",
+      "Model": "Hilux",
+      "Variant": "2.4 GD-6 SRX",
+      "Year": 2019,
+      "Price": 339900,
+      "Mileage": 145000,
+      "Province": "Gauteng",
+      "City": "Pretoria",
+      "Images": ["https://img.webuycars.co.za/1001/a.jpg", "https://img.webuycars.co.za/1001/b.jpg"],
+      "Url": "https://www.webuycars.co.za/buy-a-car/toyota-hilux/1001"
+    },
+    {
+      "Id": 1002,
+      "StockNumber": "WBC1002",
+      "Make": "Volkswagen",
+      "Model": "Polo",
+      "Variant": "1.0 TSI Comfortline",
+      "Year": 2021,
+      "Price": 0,
+      "Mileage": 32000,
+      "Province": "Gauteng",
+      "City": "Centurion",
+      "Images": [],
+      "Url": "https://www.webuycars.co.za/buy-a-car/vw-polo/1002"
+    }
+  ]
+}
