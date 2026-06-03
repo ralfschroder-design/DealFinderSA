@@ -1,0 +1,20 @@
+# Non-secret tunables. Secrets live in .env
+home:
+  name: "Hartbeespoort"
+  lat: -25.7457
+  lng: 27.8540
+  radius_km: 100
+
+fetch:
+  min_interval_seconds: 2.5   # polite delay between requests to a host
+  max_retries: 3
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DealFinderSA/0.1 (personal use)"
+
+validity:
+  min_price_zar: 5000
+  max_price_zar: 15000000
+
+sources:
+  webuycars:
+    enabled: true
+    max_pages: 2   # keep small while building
