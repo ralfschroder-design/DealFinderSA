@@ -51,6 +51,7 @@ class Listing(BaseModel):
     status: ListingStatus = ListingStatus.ACTIVE
     is_valid: bool = True
     quality_flags: list[str] = Field(default_factory=list)
+    fingerprint: str | None = None
     raw: dict | None = None
 
 
@@ -64,4 +65,5 @@ class RunStats(BaseModel):
     fetched: int = 0
     upserted: int = 0
     invalid: int = 0
+    price_points: int = 0
     errors: list[str] = Field(default_factory=list)

@@ -30,3 +30,13 @@ def test_listing_rejects_bad_year():
             category=Category.CAR,
             year=1800,  # below minimum
         )
+
+
+def test_listing_has_fingerprint_field_default_none():
+    from dealfinder.models import Category, Listing, RunStats
+
+    listing = Listing(
+        source_key="s", source_listing_id="1", url="u", category=Category.CAR
+    )
+    assert listing.fingerprint is None
+    assert RunStats().price_points == 0
