@@ -32,3 +32,26 @@ def test_inmemory_repo_records_run():
     repo = InMemoryRepository()
     repo.record_run(RunStats(source_keys=["webuycars"], fetched=2, upserted=1, invalid=1))
     assert repo.runs[-1].fetched == 2
+
+
+def test_record_price_if_changed(sample_listing):
+    from dealfinder.db import InMemoryRepository
+
+    repo = InMemoryRepository()
+    # first observation is always recorded
+    assert repo.record_price_if_changed(sample_listing) is True
+    # same price again → not recorded
+    assert repo.record_price_if_changed(sample_listing) is False
+    # changed price → recorded
+    sample_listing.price_zar = 329900
+    assert repo.record_price_if_changed(sample_listing) is True
+    assert len(repo.prices) == 2
+
+
+def test_record_price_ignores_missing_price(sample_listing):
+    from dealfinder.db import InMemoryRepository
+
+    sample_listing.price_zar = None
+    repo = InMemoryRepository()
+    assert repo.record_price_if_changed(sample_listing) is False
+    assert repo.prices == []
