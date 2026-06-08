@@ -8,7 +8,7 @@ from dealfinder.adapters import build_enabled_adapters
 from dealfinder.config import load_settings
 from dealfinder.db import SupabaseRepository
 from dealfinder.fetch import Fetcher
-from dealfinder.pipeline import run_pipeline
+from dealfinder.pipeline import run_pipeline, run_scoring
 
 
 def _require_supabase(settings):
@@ -38,6 +38,16 @@ def cmd_serve(args) -> None:
     uvicorn.run(app, host="127.0.0.1", port=port)
 
 
+def cmd_score(_args) -> None:
+    settings = load_settings()
+    _require_supabase(settings)
+    from dealfinder.db import SupabaseRepository
+    from dealfinder.pipeline import run_scoring
+    repo = SupabaseRepository(settings.supabase_url, settings.supabase_key)
+    n = run_scoring(repo)
+    print(f"Scored {n} listings against the live market.")
+
+
 def cmd_run_scrape(_args) -> None:
     settings = load_settings()
     _require_supabase(settings)
@@ -52,10 +62,11 @@ def cmd_run_scrape(_args) -> None:
         stats = run_pipeline(adapters=adapters, fetcher=fetcher, repo=repo, settings=settings)
     finally:
         fetcher.close()
+    scored = run_scoring(repo)
     print(
         f"Done. sources={stats.source_keys} fetched={stats.fetched} "
         f"upserted={stats.upserted} invalid={stats.invalid} "
-        f"price_points={stats.price_points} errors={stats.errors}"
+        f"price_points={stats.price_points} scored={scored} errors={stats.errors}"
     )
 
 
@@ -67,6 +78,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     sub.add_parser("run-scrape", help="Scrape enabled sources into Supabase").set_defaults(
         func=cmd_run_scrape
+    )
+    sub.add_parser("score", help="Score all valid listings against the live-market median").set_defaults(
+        func=cmd_score
     )
     serve_parser = sub.add_parser("serve", help="Start local search UI web server")
     serve_parser.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000)")

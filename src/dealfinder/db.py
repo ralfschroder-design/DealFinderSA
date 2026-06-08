@@ -38,6 +38,7 @@ class ListingRepository(Protocol):
         valid_only: bool = True,
         sort: str = "recent",
         limit: int = 200,
+        min_score: int | None = None,
     ) -> list[Listing]: ...
 
 
@@ -94,6 +95,7 @@ class InMemoryRepository:
         valid_only: bool = True,
         sort: str = "recent",
         limit: int = 200,
+        min_score: int | None = None,
     ) -> list[Listing]:
         results: list[Listing] = []
         price_bound_active = min_price is not None or max_price is not None
@@ -124,12 +126,21 @@ class InMemoryRepository:
                 or town.lower() not in listing.town.lower()
             ):
                 continue
+            if min_score is not None and (
+                listing.deal_score is None or listing.deal_score < min_score
+            ):
+                continue
             results.append(listing)
 
         if sort == "price_asc":
             results.sort(key=lambda x: (x.price_zar is None, x.price_zar or 0))
         elif sort == "price_desc":
             results.sort(key=lambda x: (x.price_zar is None, -(x.price_zar or 0)))
+        elif sort == "deal":
+            results.sort(
+                key=lambda l: (l.deal_score if l.deal_score is not None else -1),
+                reverse=True,
+            )
         # "recent" keeps insertion order (dict preserves insertion order in Python 3.7+)
 
         return results[:limit]
@@ -202,6 +213,7 @@ class SupabaseRepository:
         valid_only: bool = True,
         sort: str = "recent",
         limit: int = 200,
+        min_score: int | None = None,
     ) -> list[Listing]:
         query = self._client.table("listings").select("*")
         if category is not None:
@@ -218,10 +230,14 @@ class SupabaseRepository:
             query = query.ilike("town", f"%{town}%")
         if valid_only:
             query = query.eq("is_valid", True)
+        if min_score is not None:
+            query = query.gte("deal_score", min_score)
         if sort == "price_asc":
             query = query.order("price_zar", desc=False)
         elif sort == "price_desc":
             query = query.order("price_zar", desc=True)
+        elif sort == "deal":
+            query = query.order("deal_score", desc=True)
         else:
             query = query.order("last_seen_at", desc=True)
         query = query.limit(limit)

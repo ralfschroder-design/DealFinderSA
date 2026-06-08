@@ -8,6 +8,7 @@ from dealfinder.models import RunStats
 from dealfinder.fingerprint import compute_fingerprint
 from dealfinder.phone import extract_phone
 from dealfinder.validity import evaluate_validity
+from dealfinder.scoring import build_market_reference, score_listing
 
 
 def run_pipeline(
@@ -43,3 +44,20 @@ def run_pipeline(
 
     repo.record_run(stats)
     return stats
+
+
+def run_scoring(repo: ListingRepository, *, limit: int = 10000) -> int:
+    """Score all valid listings against the live-market median; persist scores. Returns count scored."""
+    listings = repo.search_listings(valid_only=True, limit=limit)
+    reference = build_market_reference(listings)
+    scored = []
+    for item in listings:
+        result = score_listing(item, reference)
+        if result is None:
+            continue
+        for field, value in result.items():
+            setattr(item, field, value)
+        scored.append(item)
+    if scored:
+        repo.upsert_listings(scored)
+    return len(scored)

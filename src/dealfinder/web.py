@@ -16,7 +16,7 @@ from dealfinder.models import Category, Listing
 # ---------------------------------------------------------------------------
 
 _CATEGORY_OPTIONS = [("", "Any category"), ("car", "Car"), ("bike", "Bike"), ("boat", "Boat"), ("jetski", "Jet Ski")]
-_SORT_OPTIONS = [("recent", "Newest first"), ("price_asc", "Price: low to high"), ("price_desc", "Price: high to low")]
+_SORT_OPTIONS = [("recent", "Newest first"), ("price_asc", "Price: low to high"), ("price_desc", "Price: high to low"), ("deal", "Best deal")]
 _VALID_ONLY_OPTIONS = [("1", "Valid only"), ("0", "Show all")]
 
 
@@ -66,6 +66,11 @@ header h1 { font-size: 1.4rem; letter-spacing: .05em; }
 .card-link a { color: #e63946; font-size: .82rem; text-decoration: none; font-weight: 600; }
 .card-link a:hover { text-decoration: underline; }
 .no-results { text-align: center; color: #888; padding: 3rem 1rem; font-size: 1rem; }
+.badge-deal { background: #d1fadf; color: #0a5c2c; font-size: .72rem; padding: .2rem .5rem;
+              border-radius: 4px; font-weight: 700; display: inline-block; margin-top: .2rem; }
+.badge-deal-neutral { background: #e8f4fd; color: #1a5c8a; font-size: .72rem; padding: .2rem .5rem;
+                      border-radius: 4px; font-weight: 600; display: inline-block; margin-top: .2rem; }
+.badge-unscored { color: #bbb; font-size: .68rem; }
 """
 
 
@@ -101,6 +106,27 @@ def _card_html(listing: Listing) -> str:
     badge_txt = "valid" if listing.is_valid else "invalid"
     url = html.escape(listing.url)
 
+    # Deal badge
+    deal_badge_html = ""
+    if listing.deal_score is not None:
+        score = listing.deal_score
+        confidence = html.escape(listing.deal_confidence or "")
+        if listing.deal_delta_zar is not None and listing.deal_delta_zar > 0 and listing.deal_delta_pct is not None:
+            pct = abs(listing.deal_delta_pct) * 100
+            deal_badge_html = (
+                f'<div><span class="badge-deal">'
+                f'&#128293; {pct:.0f}% under market &middot; score {score}/100 &middot; {confidence}'
+                f'</span></div>'
+            )
+        else:
+            deal_badge_html = (
+                f'<div><span class="badge-deal-neutral">'
+                f'score {score}/100 &middot; {confidence}'
+                f'</span></div>'
+            )
+    else:
+        deal_badge_html = '<div><span class="badge-unscored">unscored</span></div>'
+
     return f"""
 <div class="card">
   {img}
@@ -109,6 +135,7 @@ def _card_html(listing: Listing) -> str:
     <div class="card-price">{html.escape(price_str)}</div>
     <div class="card-meta">{town}{" · " if town else ""}{category_val}</div>
     <div><span class="badge {badge_cls}">{badge_txt}</span></div>
+    {deal_badge_html}
     <div class="card-link"><a href="{url}" target="_blank" rel="noopener">View &rarr;</a></div>
   </div>
 </div>"""
@@ -124,6 +151,7 @@ def render_page(listings: list[Listing], filters: dict[str, Any]) -> str:
     f_town = html.escape(filters.get("town") or "")
     f_valid_only = filters.get("valid_only", True)
     f_sort = filters.get("sort") or "recent"
+    f_min_score = filters.get("min_score") or ""
 
     f_valid_only_str = "1" if f_valid_only else "0"
 
@@ -185,6 +213,10 @@ def render_page(listings: list[Listing], filters: dict[str, Any]) -> str:
           {sort_select}
         </div>
         <div class="form-group">
+          <label for="f-min-score">Min deal score</label>
+          <input type="number" name="min_score" id="f-min-score" value="{f_min_score}" min="0" max="100" placeholder="any">
+        </div>
+        <div class="form-group">
           <label for="f-valid">Listing status</label>
           {valid_only_select}
         </div>
@@ -221,6 +253,7 @@ def create_app(repo: ListingRepository) -> FastAPI:
         town: str | None = None,
         valid_only: str | None = None,
         sort: str = "recent",
+        min_score: str | None = None,
     ):
         # Normalise text fields — blank string → None
         make = _clean(make)
@@ -230,6 +263,7 @@ def create_app(repo: ListingRepository) -> FastAPI:
         # Normalise numeric fields — blank/non-digit → None
         min_price_int = _int_or_none(min_price)
         max_price_int = _int_or_none(max_price)
+        min_score_int = _int_or_none(min_score)
 
         # valid_only: False only for explicit opt-out values; default (absent) → True
         _falsy = {"0", "false", "no", "off"}
@@ -253,6 +287,7 @@ def create_app(repo: ListingRepository) -> FastAPI:
             valid_only=valid_only_bool,
             sort=sort,
             limit=200,
+            min_score=min_score_int,
         )
 
         filters = {
@@ -264,6 +299,7 @@ def create_app(repo: ListingRepository) -> FastAPI:
             "town": town or "",
             "valid_only": valid_only_bool,
             "sort": sort,
+            "min_score": min_score_int,
         }
 
         return HTMLResponse(content=render_page(listings, filters))

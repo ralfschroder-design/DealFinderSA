@@ -129,6 +129,70 @@ def test_valid_only_can_be_disabled(repo: InMemoryRepository) -> None:
     assert "Some broken listing" in all_resp.text
 
 
+def test_sort_deal_returns_200(client: TestClient) -> None:
+    resp = client.get("/?sort=deal")
+    assert resp.status_code == 200
+
+
+def test_min_score_param_returns_200(client: TestClient) -> None:
+    resp = client.get("/?min_score=90")
+    assert resp.status_code == 200
+
+
+def test_deal_badge_shown_for_scored_listing() -> None:
+    """A listing with deal_score set must display the deal badge text."""
+    r = InMemoryRepository()
+    r.upsert_listings([
+        Listing(
+            source_key="test",
+            source_listing_id="deal-1",
+            url="https://example.com/deal-1",
+            category=Category.CAR,
+            title="2019 Toyota Hilux",
+            make="Toyota",
+            model="Hilux",
+            year=2019,
+            price_zar=240_000,
+            is_valid=True,
+            deal_score=95,
+            deal_delta_zar=60_000,
+            deal_delta_pct=0.20,
+            deal_confidence="high",
+            estimated_market_price=300_000,
+        ),
+    ])
+    c = TestClient(create_app(r))
+    resp = c.get("/")
+    assert resp.status_code == 200
+    # Badge should contain score and some deal indicator
+    assert "score" in resp.text.lower() or "under market" in resp.text.lower()
+
+
+def test_deal_badge_not_shown_for_unscored_listing() -> None:
+    """A listing with deal_score=None must not show deal badge noise."""
+    r = InMemoryRepository()
+    r.upsert_listings([
+        Listing(
+            source_key="test",
+            source_listing_id="unscored-1",
+            url="https://example.com/unscored-1",
+            category=Category.CAR,
+            title="2019 Nissan Navara",
+            make="Nissan",
+            model="Navara",
+            year=2019,
+            price_zar=250_000,
+            is_valid=True,
+            deal_score=None,
+        ),
+    ])
+    c = TestClient(create_app(r))
+    resp = c.get("/")
+    assert resp.status_code == 200
+    # "under market" badge text should NOT appear for an unscored listing
+    assert "under market" not in resp.text
+
+
 def test_xss_escaping() -> None:
     """Titles with HTML special chars must be escaped, not rendered raw."""
     r = InMemoryRepository()

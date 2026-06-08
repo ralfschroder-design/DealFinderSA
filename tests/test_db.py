@@ -157,3 +157,86 @@ def test_search_listings_valid_only_excludes_invalid():
     # with valid_only=False we should see the invalid one too
     all_results = repo.search_listings(valid_only=False)
     assert any(not r.is_valid for r in all_results)
+
+
+# ---------------------------------------------------------------------------
+# deal sort + min_score filter tests
+# ---------------------------------------------------------------------------
+
+def _make_repo_with_scored() -> InMemoryRepository:
+    """Three listings with explicit deal_scores for sort/filter tests."""
+    repo = InMemoryRepository()
+    repo.upsert_listings([
+        Listing(
+            source_key="s",
+            source_listing_id="scored-high",
+            url="https://example.com/high",
+            category=Category.CAR,
+            title="High deal score",
+            price_zar=200000,
+            deal_score=90,
+            is_valid=True,
+        ),
+        Listing(
+            source_key="s",
+            source_listing_id="scored-mid",
+            url="https://example.com/mid",
+            category=Category.CAR,
+            title="Mid deal score",
+            price_zar=250000,
+            deal_score=55,
+            is_valid=True,
+        ),
+        Listing(
+            source_key="s",
+            source_listing_id="unscored",
+            url="https://example.com/unscored",
+            category=Category.CAR,
+            title="No score yet",
+            price_zar=300000,
+            deal_score=None,
+            is_valid=True,
+        ),
+    ])
+    return repo
+
+
+def test_search_listings_sort_deal_orders_by_score_desc():
+    repo = _make_repo_with_scored()
+    results = repo.search_listings(sort="deal")
+    # scored listings must come first, in descending order
+    scores = [r.deal_score for r in results]
+    # The first result should have the highest score
+    assert scores[0] == 90
+    # Mid score should come before None
+    assert scores[1] == 55
+
+
+def test_search_listings_sort_deal_nulls_last():
+    repo = _make_repo_with_scored()
+    results = repo.search_listings(sort="deal")
+    # unscored listing (None) must appear at the end
+    assert results[-1].deal_score is None
+
+
+def test_search_listings_min_score_filters_low_and_none():
+    repo = _make_repo_with_scored()
+    results = repo.search_listings(min_score=80)
+    assert len(results) == 1
+    assert results[0].deal_score == 90
+
+
+def test_search_listings_min_score_excludes_none_scores():
+    repo = _make_repo_with_scored()
+    results = repo.search_listings(min_score=1)
+    # Should include scored-high and scored-mid but NOT unscored (None)
+    listing_ids = {r.source_listing_id for r in results}
+    assert "unscored" not in listing_ids
+    assert "scored-high" in listing_ids
+    assert "scored-mid" in listing_ids
+
+
+def test_search_listings_min_score_none_returns_all():
+    repo = _make_repo_with_scored()
+    results = repo.search_listings(min_score=None)
+    assert len(results) == 3  # no filter applied
