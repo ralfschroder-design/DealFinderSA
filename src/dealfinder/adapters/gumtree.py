@@ -173,10 +173,13 @@ class GumtreeAdapter(Adapter):
         for category, path in CATEGORY_PATHS.items():
             for page in range(1, max_pages + 1):
                 url = BASE + path + f"p{page}"
-                html = fetcher.get_text(url)
-                page_listings = self.parse_page(html, category)
+                try:
+                    html = fetcher.get_text(url)
+                    page_listings = self.parse_page(html, category)
+                except Exception:
+                    continue  # skip this page; keep going with other pages/categories
                 if not page_listings:
-                    break  # stop early if empty page
+                    break  # stop early if empty page (genuine end of results)
                 for listing in page_listings:
                     if listing.source_listing_id not in seen_ids:
                         seen_ids.add(listing.source_listing_id)

@@ -78,3 +78,30 @@ def test_fetch_listings_dedups_ids_across_categories(settings):
     ids = [l.source_listing_id for l in listings]
     assert len(ids) == len(set(ids))   # no duplicate ids
     assert len(listings) == 1          # same ad across categories collapses to one
+
+
+def test_fetch_listings_survives_a_failing_page(settings):
+    from dealfinder.adapters.gumtree import GumtreeAdapter
+
+    good_html = (
+        '<div class="tile-item">'
+        '<a href="/a-cars-bakkies/pretoria/2019-toyota-hilux/999"></a>'
+        '<span class="ad-price">R 100 000</span>'
+        '<img data-src="https://img.example/x.jpg">'
+        '</div>'
+    )
+
+    class FlakyFetcher:
+        def __init__(self):
+            self.calls = 0
+
+        def get_text(self, url, params=None, headers=None):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("transient network blip")
+            return good_html
+
+    # Must NOT raise, and must still return the listings from the pages that worked.
+    listings = GumtreeAdapter().fetch_listings(FlakyFetcher(), settings)
+    assert len(listings) >= 1
+    assert listings[0].source_listing_id == "999"
