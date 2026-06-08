@@ -10,6 +10,7 @@ from dealfinder.adapters.base import Adapter
 from dealfinder.config import Settings
 from dealfinder.fetch import Fetcher
 from dealfinder.models import Category, Listing
+from dealfinder.vehicles import split_make_model
 
 BASE = "https://www.gumtree.co.za"
 
@@ -53,29 +54,15 @@ def _from_href(href: str) -> dict[str, Any]:
 
     town = title_slug_to_readable(town_slug) if town_slug and town_slug != "other" else None
 
-    # Parse title-slug tokens (replace - and + with spaces)
-    tokens = re.split(r"[-+]", title_slug)
-
+    # Extract year from the title slug (first 4-digit year token)
     year: int | None = None
-    make: str | None = None
-    model: str | None = None
-    year_idx = -1
-
-    for i, token in enumerate(tokens):
+    for token in re.split(r"[-+]", title_slug):
         if re.match(r"^(19|20)\d{2}$", token):
             year = int(token)
-            year_idx = i
             break
 
-    if year_idx >= 0:
-        remaining = tokens[year_idx + 1:]
-    else:
-        remaining = tokens
-
-    if remaining:
-        make = remaining[0].title() if remaining[0] else None
-    if len(remaining) >= 2:
-        model = remaining[1].title() if remaining[1] else None
+    # Use known-makes dictionary for clean make/model/variant parsing
+    make, model, _variant = split_make_model(title_slug)
 
     # Build human-readable title from slug
     title = re.sub(r"[-+]", " ", title_slug).strip()
