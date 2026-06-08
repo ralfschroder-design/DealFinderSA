@@ -10,6 +10,8 @@ dependencies = [
     "python-dotenv>=1.0",
     "supabase>=2.5",
     "beautifulsoup4>=4.12",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
 ]
 
 [project.optional-dependencies]
