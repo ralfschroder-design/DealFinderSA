@@ -5,6 +5,8 @@ from dealfinder.config import Settings
 from dealfinder.db import ListingRepository
 from dealfinder.fetch import Fetcher
 from dealfinder.models import RunStats
+from dealfinder.fingerprint import compute_fingerprint
+from dealfinder.phone import extract_phone
 from dealfinder.validity import evaluate_validity
 
 
@@ -26,11 +28,16 @@ def run_pipeline(
 
         for listing in listings:
             stats.fetched += 1
+            listing.fingerprint = compute_fingerprint(listing)
+            if not listing.seller_phone:
+                listing.seller_phone = extract_phone(listing.description)
             result = evaluate_validity(listing, settings)
             listing.is_valid = result.is_valid
             listing.quality_flags = result.flags
             if not result.is_valid:
                 stats.invalid += 1
+            elif repo.record_price_if_changed(listing):
+                stats.price_points += 1
 
         stats.upserted += repo.upsert_listings(listings)
 
