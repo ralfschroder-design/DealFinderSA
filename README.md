@@ -27,8 +27,7 @@ Configuration (home location, radius, politeness, enabled sources) lives in
 
 ## Status
 
-Plan 1 (walking skeleton) — WeBuyCars -> validate -> Supabase. 19 tests passing. See
-`docs/plans/` and `docs/specs/` for the full design and roadmap.
+Plan 1 + Plan 2 (dedup, SA phone extraction, price history) — WeBuyCars -> validate -> fingerprint -> Supabase. 36 tests passing. See `docs/plans/` and `docs/specs/` for the full design and roadmap.
 
 ## Go-live checklist (user-gated)
 
@@ -42,3 +41,5 @@ These steps need a Supabase account and live network, so they are done by the pr
    `pytest tests/test_webuycars.py` until green against the real shape.
 4. Run `dealfinder run-scrape` and confirm valid listings appear in the Supabase `listings`
    table (and a row in `runs`).
+5. After pulling Plan 2, apply `migrations/002_clustering.sql` in the Supabase SQL editor
+   (adds the `fingerprint` column, the `price_history` table, and the `vehicle_clusters` view).

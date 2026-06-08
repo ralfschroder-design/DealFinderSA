@@ -29,6 +29,7 @@ external services referenced via `.env`).
 | 2026-06-02 | Brainstormed requirements and locked the design. Wrote design spec (`docs/specs/2026-06-02-dealfindersa-design.md`). Key decisions: flip use-case; cars+bikes+boats+jetskis; max-coverage sources (Tier-1 reliable + Tier-2 best-effort); scheduled scrape + hot-deal alerts; local Python scraper on Windows (portable); Supabase cloud DB + hosted UI; market-compare + condition scoring; **email** alerts (switched from WhatsApp); Hartbeespoort + 100 km default; docs in Markdown, no Confluence. |
 | 2026-06-02 | Wrote **Plan 1 — walking skeleton** (`docs/plans/2026-06-02-plan-1-walking-skeleton.md`). Chose **WeBuyCars** as the primary first source (cars/bakkies, via its JSON inventory API); **Gumtree** is the fast-follow for bikes/boats/jetskis. Updated spec Tier-1 list accordingly. Plan covers: package scaffold, config, Listing model, polite fetch layer, WeBuyCars adapter, validity engine, Supabase schema + repository, pipeline + CLI — TDD, 9 tasks. |
 | 2026-06-04 | Implemented Plan 1 (walking skeleton), Tasks 1-8, via subagent-driven development with per-task spec + quality review. Package `dealfinder`: config, Listing model, polite fetch layer, WeBuyCars adapter (fixture-driven), validity engine, Supabase schema + repository, pipeline + CLI. 19 tests passing. Commits 99c1809..5011679 on branch master. README added. Live WeBuyCars API reconciliation + real Supabase scrape remain user-gated (see README go-live checklist). |
+| 2026-06-08 | Implemented **Plan 2 — dedup & clustering** (`docs/plans/2026-06-04-plan-2-dedup-clustering.md`), Tasks 1-6 via subagent-driven development with per-task review. Added: price-independent vehicle `fingerprint`, SA phone extraction, `price_history` (record-on-change) + `vehicle_clusters` view, wired into the pipeline. 36 tests passing. Image pHash + transitive phone-merge deferred. New migration `002_clustering.sql` is user-gated (apply in Supabase during go-live). |
 
 ## Key Files & Paths
 | Path / URL | Purpose |
@@ -38,6 +39,7 @@ external services referenced via `.env`).
 | `CLAUDE.md` | Session bootstrap instructions |
 | `docs/plans/2026-06-02-plan-1-walking-skeleton.md` | Plan 1 — walking skeleton (step-by-step build) |
 | `README.md` | Setup, usage, and go-live checklist |
+| `docs/plans/2026-06-04-plan-2-dedup-clustering.md` | Plan 2 — dedup & clustering (step-by-step build) |
 
 ## Open Questions & Blockers
 - [ ] Confirm Tier-1 source list (AutoTrader, Cars.co.za, Gumtree, AutoMart + boat/jetski sites) — add/drop any?
@@ -46,6 +48,6 @@ external services referenced via `.env`).
 - [ ] Resale/cost assumptions for the margin estimate (transport, recon, fees) — set sensible defaults, refine later.
 
 ## Next Steps
-1. **Go live (user-gated)** — follow the go-live checklist in `README.md`: create Supabase project + `.env`, apply schema via `dealfinder init-db`, capture a real WeBuyCars API response and reconcile the adapter, then `dealfinder run-scrape` and verify rows.
-2. **Plan 2 — dedup & clustering** (fingerprint + image pHash + phone match, price history).
-3. Subsequent: Plan 3 scoring → Plan 4 email alerts → Plan 5 UI → Plan 6 more sources (Gumtree/AutoTrader/Cars.co.za) → Plan 7 scheduling + Tier-2 social.
+1. **Go live (user-gated)** — follow the go-live checklist in `README.md`: create Supabase project + `.env`, apply schema via `dealfinder init-db`, capture a real WeBuyCars API response and reconcile the adapter, then `dealfinder run-scrape` and verify rows. (remember to also apply `migrations/002_clustering.sql`)
+2. **Plan 3 — market-value scoring** (rolling market stats + deal score + condition signals + margin).
+3. Subsequent: Plan 4 email alerts → Plan 5 UI → Plan 6 more sources (Gumtree/AutoTrader/Cars.co.za) → Plan 7 scheduling + Tier-2 social.
