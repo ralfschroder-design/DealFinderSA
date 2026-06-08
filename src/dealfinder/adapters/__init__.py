@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dealfinder.adapters.base import Adapter
+from dealfinder.adapters.gumtree import GumtreeAdapter
 from dealfinder.adapters.webuycars import WeBuyCarsAdapter
 from dealfinder.config import Settings
 
 _ALL: dict[str, type[Adapter]] = {
+    GumtreeAdapter.key: GumtreeAdapter,
     WeBuyCarsAdapter.key: WeBuyCarsAdapter,
 }
 

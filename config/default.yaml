@@ -15,6 +15,9 @@ validity:
   max_price_zar: 15000000
 
 sources:
-  webuycars:
+  gumtree:
     enabled: true
+    max_pages: 1
+  webuycars:
+    enabled: false
     max_pages: 2   # keep small while building
