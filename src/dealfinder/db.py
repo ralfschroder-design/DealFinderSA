@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Protocol
 
-from dealfinder.models import Listing, RunStats
+from dealfinder.models import Category, Listing, RunStats
 
 
 def _dedup_listings(listings: list[Listing]) -> list[Listing]:
@@ -26,6 +26,19 @@ class ListingRepository(Protocol):
     def upsert_listings(self, listings: list[Listing]) -> int: ...
     def record_run(self, run: RunStats) -> None: ...
     def record_price_if_changed(self, listing: Listing) -> bool: ...
+    def search_listings(
+        self,
+        *,
+        category: Category | None = None,
+        make: str | None = None,
+        q: str | None = None,
+        min_price: int | None = None,
+        max_price: int | None = None,
+        town: str | None = None,
+        valid_only: bool = True,
+        sort: str = "recent",
+        limit: int = 200,
+    ) -> list[Listing]: ...
 
 
 class InMemoryRepository:
@@ -68,6 +81,58 @@ class InMemoryRepository:
 
     def all(self) -> list[Listing]:
         return list(self._store.values())
+
+    def search_listings(
+        self,
+        *,
+        category: Category | None = None,
+        make: str | None = None,
+        q: str | None = None,
+        min_price: int | None = None,
+        max_price: int | None = None,
+        town: str | None = None,
+        valid_only: bool = True,
+        sort: str = "recent",
+        limit: int = 200,
+    ) -> list[Listing]:
+        results: list[Listing] = []
+        price_bound_active = min_price is not None or max_price is not None
+
+        for listing in self._store.values():
+            if valid_only and not listing.is_valid:
+                continue
+            if category is not None and listing.category != category:
+                continue
+            if make is not None and (
+                listing.make is None
+                or make.lower() not in listing.make.lower()
+            ):
+                continue
+            if q is not None and (
+                listing.title is None
+                or q.lower() not in listing.title.lower()
+            ):
+                continue
+            if price_bound_active and listing.price_zar is None:
+                continue
+            if min_price is not None and listing.price_zar is not None and listing.price_zar < min_price:
+                continue
+            if max_price is not None and listing.price_zar is not None and listing.price_zar > max_price:
+                continue
+            if town is not None and (
+                listing.town is None
+                or town.lower() not in listing.town.lower()
+            ):
+                continue
+            results.append(listing)
+
+        if sort == "price_asc":
+            results.sort(key=lambda x: (x.price_zar is None, x.price_zar or 0))
+        elif sort == "price_desc":
+            results.sort(key=lambda x: (x.price_zar is None, -(x.price_zar or 0)))
+        # "recent" keeps insertion order (dict preserves insertion order in Python 3.7+)
+
+        return results[:limit]
 
 
 class SupabaseRepository:
@@ -124,3 +189,41 @@ class SupabaseRepository:
             }
         ).execute()
         return True
+
+    def search_listings(
+        self,
+        *,
+        category: Category | None = None,
+        make: str | None = None,
+        q: str | None = None,
+        min_price: int | None = None,
+        max_price: int | None = None,
+        town: str | None = None,
+        valid_only: bool = True,
+        sort: str = "recent",
+        limit: int = 200,
+    ) -> list[Listing]:
+        query = self._client.table("listings").select("*")
+        if category is not None:
+            query = query.eq("category", category.value)
+        if make is not None:
+            query = query.ilike("make", f"%{make}%")
+        if q is not None:
+            query = query.ilike("title", f"%{q}%")
+        if min_price is not None:
+            query = query.gte("price_zar", min_price)
+        if max_price is not None:
+            query = query.lte("price_zar", max_price)
+        if town is not None:
+            query = query.ilike("town", f"%{town}%")
+        if valid_only:
+            query = query.eq("is_valid", True)
+        if sort == "price_asc":
+            query = query.order("price_zar", desc=False)
+        elif sort == "price_desc":
+            query = query.order("price_zar", desc=True)
+        else:
+            query = query.order("last_seen_at", desc=True)
+        query = query.limit(limit)
+        resp = query.execute()
+        return [Listing(**row) for row in resp.data]

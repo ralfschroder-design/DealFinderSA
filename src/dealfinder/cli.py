@@ -27,6 +27,17 @@ def cmd_init_db(_args) -> None:
         print()
 
 
+def cmd_serve(args) -> None:
+    settings = load_settings()
+    _require_supabase(settings)
+    from dealfinder.db import SupabaseRepository
+    from dealfinder.web import create_app
+    import uvicorn
+    app = create_app(SupabaseRepository(settings.supabase_url, settings.supabase_key))
+    port = getattr(args, "port", 8000)
+    uvicorn.run(app, host="127.0.0.1", port=port)
+
+
 def cmd_run_scrape(_args) -> None:
     settings = load_settings()
     _require_supabase(settings)
@@ -57,6 +68,9 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("run-scrape", help="Scrape enabled sources into Supabase").set_defaults(
         func=cmd_run_scrape
     )
+    serve_parser = sub.add_parser("serve", help="Start local search UI web server")
+    serve_parser.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000)")
+    serve_parser.set_defaults(func=cmd_serve)
     args = parser.parse_args(argv)
     args.func(args)
 
