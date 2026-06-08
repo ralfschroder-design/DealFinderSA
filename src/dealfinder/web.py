@@ -17,6 +17,19 @@ from dealfinder.models import Category, Listing
 
 _CATEGORY_OPTIONS = [("", "Any category"), ("car", "Car"), ("bike", "Bike"), ("boat", "Boat"), ("jetski", "Jet Ski")]
 _SORT_OPTIONS = [("recent", "Newest first"), ("price_asc", "Price: low to high"), ("price_desc", "Price: high to low")]
+_VALID_ONLY_OPTIONS = [("1", "Valid only"), ("0", "Show all")]
+
+
+def _int_or_none(v: str | None) -> int | None:
+    """Return int if *v* is a non-empty digit string, else None."""
+    v = (v or "").strip()
+    return int(v) if v.isdigit() else None
+
+
+def _clean(v: str | None) -> str | None:
+    """Return stripped string if non-empty, else None."""
+    v = (v or "").strip()
+    return v or None
 
 _PAGE_CSS = """
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -31,8 +44,6 @@ header h1 { font-size: 1.4rem; letter-spacing: .05em; }
 .form-group label { display: block; font-size: .75rem; color: #666; margin-bottom: .2rem; }
 .form-group input, .form-group select { width: 100%; padding: .4rem .55rem; border: 1px solid #ccc;
     border-radius: 5px; font-size: .85rem; }
-.form-group.checkbox { display: flex; align-items: center; gap: .4rem; padding-top: 1.4rem; }
-.form-group.checkbox label { margin: 0; font-size: .85rem; color: #333; }
 .btn-search { margin-top: .8rem; padding: .5rem 1.4rem; background: #e63946; color: #fff;
               border: none; border-radius: 5px; cursor: pointer; font-size: .9rem; }
 .btn-search:hover { background: #c1121f; }
@@ -114,10 +125,11 @@ def render_page(listings: list[Listing], filters: dict[str, Any]) -> str:
     f_valid_only = filters.get("valid_only", True)
     f_sort = filters.get("sort") or "recent"
 
-    valid_checked = ' checked' if f_valid_only else ''
+    f_valid_only_str = "1" if f_valid_only else "0"
 
     category_select = _select("category", _CATEGORY_OPTIONS, f_category)
     sort_select = _select("sort", _SORT_OPTIONS, f_sort)
+    valid_only_select = _select("valid_only", _VALID_ONLY_OPTIONS, f_valid_only_str)
 
     count = len(listings)
     result_count_txt = f"{count} listing{'s' if count != 1 else ''} found"
@@ -172,9 +184,9 @@ def render_page(listings: list[Listing], filters: dict[str, Any]) -> str:
           <label for="f-sort">Sort by</label>
           {sort_select}
         </div>
-        <div class="form-group checkbox">
-          <input type="checkbox" name="valid_only" id="f-valid" value="true"{valid_checked}>
-          <label for="f-valid">Valid only</label>
+        <div class="form-group">
+          <label for="f-valid">Listing status</label>
+          {valid_only_select}
         </div>
       </div>
       <button type="submit" class="btn-search">Search</button>
@@ -204,28 +216,41 @@ def create_app(repo: ListingRepository) -> FastAPI:
         category: str | None = None,
         make: str | None = None,
         q: str | None = None,
-        min_price: int | None = None,
-        max_price: int | None = None,
+        min_price: str | None = None,
+        max_price: str | None = None,
         town: str | None = None,
-        valid_only: bool = True,
+        valid_only: str | None = None,
         sort: str = "recent",
     ):
+        # Normalise text fields — blank string → None
+        make = _clean(make)
+        q = _clean(q)
+        town = _clean(town)
+
+        # Normalise numeric fields — blank/non-digit → None
+        min_price_int = _int_or_none(min_price)
+        max_price_int = _int_or_none(max_price)
+
+        # valid_only: False only for explicit opt-out values; default (absent) → True
+        _falsy = {"0", "false", "no", "off"}
+        valid_only_bool: bool = (valid_only or "").strip().lower() not in _falsy
+
         # Parse category string → Category enum (ignore invalid values)
         cat_enum: Category | None = None
-        if category:
+        if _clean(category):
             try:
-                cat_enum = Category(category)
+                cat_enum = Category(category.strip())
             except ValueError:
                 cat_enum = None
 
         listings = repo.search_listings(
             category=cat_enum,
-            make=make or None,
-            q=q or None,
-            min_price=min_price,
-            max_price=max_price,
-            town=town or None,
-            valid_only=valid_only,
+            make=make,
+            q=q,
+            min_price=min_price_int,
+            max_price=max_price_int,
+            town=town,
+            valid_only=valid_only_bool,
             sort=sort,
             limit=200,
         )
@@ -234,10 +259,10 @@ def create_app(repo: ListingRepository) -> FastAPI:
             "category": cat_enum.value if cat_enum else "",
             "make": make or "",
             "q": q or "",
-            "min_price": min_price,
-            "max_price": max_price,
+            "min_price": min_price_int,
+            "max_price": max_price_int,
             "town": town or "",
-            "valid_only": valid_only,
+            "valid_only": valid_only_bool,
             "sort": sort,
         }
 

@@ -108,6 +108,27 @@ def test_healthz(client: TestClient) -> None:
     assert resp.json() == {"ok": True}
 
 
+def test_blank_price_fields_do_not_error(repo: InMemoryRepository) -> None:
+    """Empty string from blank form inputs must NOT cause a 422."""
+    client = TestClient(create_app(repo))
+    r = client.get("/?q=&make=&min_price=&max_price=&town=&category=&sort=recent")
+    assert r.status_code == 200          # was 422 before fix
+    assert "Toyota" in r.text            # still renders results
+
+
+def test_valid_only_can_be_disabled(repo: InMemoryRepository) -> None:
+    """valid_only=0 must show invalid listings; default (absent) must hide them."""
+    client = TestClient(create_app(repo))
+    # Default — invalid listing absent
+    default_resp = client.get("/")
+    assert default_resp.status_code == 200
+    assert "Some broken listing" not in default_resp.text
+    # Explicit valid_only=0 — invalid listing present
+    all_resp = client.get("/?valid_only=0")
+    assert all_resp.status_code == 200
+    assert "Some broken listing" in all_resp.text
+
+
 def test_xss_escaping() -> None:
     """Titles with HTML special chars must be escaped, not rendered raw."""
     r = InMemoryRepository()
