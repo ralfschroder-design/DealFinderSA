@@ -62,11 +62,20 @@ def cmd_run_scrape(_args) -> None:
         stats = run_pipeline(adapters=adapters, fetcher=fetcher, repo=repo, settings=settings)
     finally:
         fetcher.close()
-    scored = run_scoring(repo)
+    try:
+        scored = run_scoring(repo)
+        scored_part = f"scored={scored} "
+    except Exception as e:
+        scored_part = ""
+        short_err = str(e).splitlines()[0][:120]
+        print(
+            f"Scoring skipped (apply migrations/003_scoring.sql in Supabase to enable). "
+            f"Reason: {short_err}"
+        )
     print(
         f"Done. sources={stats.source_keys} fetched={stats.fetched} "
         f"upserted={stats.upserted} invalid={stats.invalid} "
-        f"price_points={stats.price_points} scored={scored} errors={stats.errors}"
+        f"price_points={stats.price_points} {scored_part}errors={stats.errors}"
     )
 
 
