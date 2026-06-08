@@ -52,6 +52,11 @@ class Listing(BaseModel):
     is_valid: bool = True
     quality_flags: list[str] = Field(default_factory=list)
     fingerprint: str | None = None
+    estimated_market_price: int | None = None
+    deal_delta_zar: int | None = None
+    deal_delta_pct: float | None = None
+    deal_score: int | None = None
+    deal_confidence: str | None = None
     raw: dict | None = None
 
 
