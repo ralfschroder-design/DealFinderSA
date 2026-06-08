@@ -168,6 +168,7 @@ class GumtreeAdapter(Adapter):
         max_pages = src_cfg.max_pages if src_cfg else 1
 
         all_listings: list[Listing] = []
+        seen_ids: set[str] = set()
 
         for category, path in CATEGORY_PATHS.items():
             for page in range(1, max_pages + 1):
@@ -176,7 +177,10 @@ class GumtreeAdapter(Adapter):
                 page_listings = self.parse_page(html, category)
                 if not page_listings:
                     break  # stop early if empty page
-                all_listings.extend(page_listings)
+                for listing in page_listings:
+                    if listing.source_listing_id not in seen_ids:
+                        seen_ids.add(listing.source_listing_id)
+                        all_listings.append(listing)
 
         return all_listings
 

@@ -57,3 +57,24 @@ def test_at_least_5_years(listings):
 def test_unique_ids(listings):
     ids = [l.source_listing_id for l in listings]
     assert len(ids) == len(set(ids)), "Duplicate source_listing_id values found"
+
+
+def test_fetch_listings_dedups_ids_across_categories(settings):
+    from dealfinder.adapters.gumtree import GumtreeAdapter
+
+    html = (
+        '<div class="tile-item">'
+        '<a href="/a-cars-bakkies/durbanville/2011-toyota-rav4/123"></a>'
+        '<span class="ad-price">R 100 000</span>'
+        '<img data-src="https://img.example/x.jpg">'
+        '</div>'
+    )
+
+    class FakeFetcher:
+        def get_text(self, url, params=None, headers=None):
+            return html
+
+    listings = GumtreeAdapter().fetch_listings(FakeFetcher(), settings)
+    ids = [l.source_listing_id for l in listings]
+    assert len(ids) == len(set(ids))   # no duplicate ids
+    assert len(listings) == 1          # same ad across categories collapses to one

@@ -55,3 +55,17 @@ def test_record_price_ignores_missing_price(sample_listing):
     repo = InMemoryRepository()
     assert repo.record_price_if_changed(sample_listing) is False
     assert repo.prices == []
+
+
+def test_upsert_dedups_batch_by_key(sample_listing):
+    from copy import deepcopy
+    from dealfinder.db import InMemoryRepository
+
+    a = sample_listing
+    b = deepcopy(sample_listing)
+    b.price_zar = 111111  # same (source_key, source_listing_id), different price
+    repo = InMemoryRepository()
+    n = repo.upsert_listings([a, b])
+    assert n == 1
+    assert len(repo.all()) == 1
+    assert repo.get("webuycars", "123").price_zar == 111111  # last wins

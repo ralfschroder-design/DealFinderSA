@@ -6,6 +6,14 @@ from typing import Protocol
 from dealfinder.models import Listing, RunStats
 
 
+def _dedup_listings(listings: list[Listing]) -> list[Listing]:
+    """Collapse listings sharing (source_key, source_listing_id), keeping the last (freshest)."""
+    by_key: dict[tuple[str, str], Listing] = {}
+    for item in listings:
+        by_key[(item.source_key, item.source_listing_id)] = item
+    return list(by_key.values())
+
+
 def listing_to_row(listing: Listing) -> dict:
     """Map a Listing to a Supabase row. Omits first_seen_at so it is preserved on update."""
     data = listing.model_dump(mode="json", exclude={"raw"})
@@ -30,9 +38,10 @@ class InMemoryRepository:
         self._last_price: dict[tuple[str, str], int] = {}
 
     def upsert_listings(self, listings: list[Listing]) -> int:
-        for listing in listings:
+        deduped = _dedup_listings(listings)
+        for listing in deduped:
             self._store[(listing.source_key, listing.source_listing_id)] = listing
-        return len(listings)
+        return len(deduped)
 
     def record_run(self, run: RunStats) -> None:
         self.runs.append(run)
@@ -70,13 +79,14 @@ class SupabaseRepository:
         self._client = create_client(url, key)
 
     def upsert_listings(self, listings: list[Listing]) -> int:
-        if not listings:
+        deduped = _dedup_listings(listings)
+        if not deduped:
             return 0
-        rows = [listing_to_row(item) for item in listings]
+        rows = [listing_to_row(item) for item in deduped]
         self._client.table("listings").upsert(
             rows, on_conflict="source_key,source_listing_id"
         ).execute()
-        return len(rows)
+        return len(deduped)
 
     def record_run(self, run: RunStats) -> None:
         self._client.table("runs").insert(
