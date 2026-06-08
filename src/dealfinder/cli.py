@@ -18,9 +18,13 @@ def _require_supabase(settings):
 
 
 def cmd_init_db(_args) -> None:
-    sql = (Path(__file__).resolve().parents[2] / "migrations" / "001_core.sql").read_text("utf-8")
-    print("Run the following SQL in the Supabase SQL editor:\n")
-    print(sql)
+    migrations_dir = Path(__file__).resolve().parents[2] / "migrations"
+    files = sorted(migrations_dir.glob("*.sql"))
+    print("Run the following SQL in the Supabase SQL editor (in order):\n")
+    for path in files:
+        print(f"-- ===== {path.name} =====")
+        print(path.read_text("utf-8"))
+        print()
 
 
 def cmd_run_scrape(_args) -> None:
@@ -39,7 +43,8 @@ def cmd_run_scrape(_args) -> None:
         fetcher.close()
     print(
         f"Done. sources={stats.source_keys} fetched={stats.fetched} "
-        f"upserted={stats.upserted} invalid={stats.invalid} errors={stats.errors}"
+        f"upserted={stats.upserted} invalid={stats.invalid} "
+        f"price_points={stats.price_points} errors={stats.errors}"
     )
 
 
