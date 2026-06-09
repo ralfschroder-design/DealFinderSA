@@ -21,3 +21,6 @@ sources:
   webuycars:
     enabled: false
     max_pages: 2   # keep small while building
+
+alerts:
+  min_score: 80

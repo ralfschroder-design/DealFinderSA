@@ -240,3 +240,53 @@ def test_search_listings_min_score_none_returns_all():
     repo = _make_repo_with_scored()
     results = repo.search_listings(min_score=None)
     assert len(results) == 3  # no filter applied
+
+
+# ---------------------------------------------------------------------------
+# alerts: alerted_keys / record_alerts (Plan 4, Task A)
+# ---------------------------------------------------------------------------
+
+def test_alerted_keys_empty_initially():
+    repo = InMemoryRepository()
+    assert repo.alerted_keys() == set()
+
+
+def test_record_alerts_adds_key_and_returns_count(sample_listing):
+    sample_listing.deal_score = 90
+    repo = InMemoryRepository()
+    count = repo.record_alerts([sample_listing])
+    assert count == 1
+    assert ("webuycars", "123") in repo.alerted_keys()
+
+
+def test_record_alerts_idempotent(sample_listing):
+    """Calling record_alerts twice with the same listing should not raise and the key stays present."""
+    sample_listing.deal_score = 90
+    repo = InMemoryRepository()
+    repo.record_alerts([sample_listing])
+    count2 = repo.record_alerts([sample_listing])
+    # second call: the key was already present, so 0 new entries
+    assert count2 == 0
+    assert ("webuycars", "123") in repo.alerted_keys()
+
+
+def test_record_alerts_multiple(sample_listing):
+    from copy import deepcopy
+
+    b = deepcopy(sample_listing)
+    b.source_listing_id = "999"
+    b.deal_score = 85
+    sample_listing.deal_score = 90
+
+    repo = InMemoryRepository()
+    count = repo.record_alerts([sample_listing, b])
+    assert count == 2
+    assert len(repo.alerted_keys()) == 2
+
+
+def test_alerted_keys_returns_copy():
+    """Mutating the returned set must not corrupt internal state."""
+    repo = InMemoryRepository()
+    keys = repo.alerted_keys()
+    keys.add(("rogue", "99"))
+    assert ("rogue", "99") not in repo.alerted_keys()

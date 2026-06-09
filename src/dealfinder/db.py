@@ -40,6 +40,8 @@ class ListingRepository(Protocol):
         limit: int = 200,
         min_score: int | None = None,
     ) -> list[Listing]: ...
+    def alerted_keys(self) -> set[tuple[str, str]]: ...
+    def record_alerts(self, listings: list[Listing]) -> int: ...
 
 
 class InMemoryRepository:
@@ -50,6 +52,7 @@ class InMemoryRepository:
         self.runs: list[RunStats] = []
         self.prices: list[dict] = []
         self._last_price: dict[tuple[str, str], int] = {}
+        self.alerts: set[tuple[str, str]] = set()
 
     def upsert_listings(self, listings: list[Listing]) -> int:
         deduped = _dedup_listings(listings)
@@ -144,6 +147,18 @@ class InMemoryRepository:
         # "recent" keeps insertion order (dict preserves insertion order in Python 3.7+)
 
         return results[:limit]
+
+    def alerted_keys(self) -> set[tuple[str, str]]:
+        return set(self.alerts)
+
+    def record_alerts(self, listings: list[Listing]) -> int:
+        added = 0
+        for listing in listings:
+            key = (listing.source_key, listing.source_listing_id)
+            if key not in self.alerts:
+                self.alerts.add(key)
+                added += 1
+        return added
 
 
 class SupabaseRepository:
@@ -243,3 +258,27 @@ class SupabaseRepository:
         query = query.limit(limit)
         resp = query.execute()
         return [Listing(**row) for row in resp.data]
+
+    def alerted_keys(self) -> set[tuple[str, str]]:
+        resp = (
+            self._client.table("alerts_sent")
+            .select("source_key, source_listing_id")
+            .execute()
+        )
+        return {(row["source_key"], row["source_listing_id"]) for row in resp.data}
+
+    def record_alerts(self, listings: list[Listing]) -> int:
+        if not listings:
+            return 0
+        rows = [
+            {
+                "source_key": l.source_key,
+                "source_listing_id": l.source_listing_id,
+                "deal_score": l.deal_score,
+            }
+            for l in listings
+        ]
+        self._client.table("alerts_sent").upsert(
+            rows, on_conflict="source_key,source_listing_id"
+        ).execute()
+        return len(rows)
