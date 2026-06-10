@@ -5,8 +5,10 @@ import sys
 from pathlib import Path
 
 from dealfinder.adapters import build_enabled_adapters
+from dealfinder.alerts import run_alerts
 from dealfinder.config import load_settings
 from dealfinder.db import SupabaseRepository
+from dealfinder.email import EmailSender
 from dealfinder.fetch import Fetcher
 from dealfinder.pipeline import run_pipeline, run_scoring
 
@@ -48,6 +50,20 @@ def cmd_score(_args) -> None:
     print(f"Scored {n} listings against the live market.")
 
 
+def cmd_alert(_args) -> None:
+    settings = load_settings()
+    _require_supabase(settings)
+    repo = SupabaseRepository(settings.supabase_url, settings.supabase_key)
+    sender = EmailSender(settings)
+    if not sender.is_configured:
+        print(
+            "Email not configured — set SMTP_HOST/SMTP_USER/SMTP_PASS/ALERT_EMAIL_TO in .env"
+        )
+        return
+    n = run_alerts(repo, sender, settings)
+    print(f"Sent alerts for {n} new deal(s).")
+
+
 def cmd_run_scrape(_args) -> None:
     settings = load_settings()
     _require_supabase(settings)
@@ -72,10 +88,18 @@ def cmd_run_scrape(_args) -> None:
             f"Scoring skipped (apply migrations/003_scoring.sql in Supabase to enable). "
             f"Reason: {short_err}"
         )
+    alerted_part = ""
+    try:
+        sender = EmailSender(settings)
+        n = run_alerts(repo, sender, settings)
+        alerted_part = f"alerted={n} "
+    except Exception as e:
+        short_err = str(e).splitlines()[0][:120]
+        print(f"Alerts skipped: {short_err}")
     print(
         f"Done. sources={stats.source_keys} fetched={stats.fetched} "
         f"upserted={stats.upserted} invalid={stats.invalid} "
-        f"price_points={stats.price_points} {scored_part}errors={stats.errors}"
+        f"price_points={stats.price_points} {scored_part}{alerted_part}errors={stats.errors}"
     )
 
 
@@ -90,6 +114,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     sub.add_parser("score", help="Score all valid listings against the live-market median").set_defaults(
         func=cmd_score
+    )
+    sub.add_parser("alert", help="Send email digest of new deals above the score threshold").set_defaults(
+        func=cmd_alert
     )
     serve_parser = sub.add_parser("serve", help="Start local search UI web server")
     serve_parser.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000)")
