@@ -1,6 +1,7 @@
 """Tests for GumtreeAdapter.parse_page — offline, against a saved fixture."""
 from __future__ import annotations
 
+from datetime import timezone
 from pathlib import Path
 
 import pytest
@@ -78,6 +79,43 @@ def test_fetch_listings_dedups_ids_across_categories(settings):
     ids = [l.source_listing_id for l in listings]
     assert len(ids) == len(set(ids))   # no duplicate ids
     assert len(listings) == 1          # same ad across categories collapses to one
+
+
+def test_posted_at_set_on_at_least_one_listing(listings):
+    """parse_page must set posted_at (timezone-aware) on listings whose creationDate
+    appears in the galleryAdList_searchGallery inline JSON (expect ≥1 from fixture)."""
+    with_date = [l for l in listings if l.posted_at is not None]
+    assert len(with_date) >= 1, (
+        f"Expected at least 1 listing with posted_at set, got 0 out of {len(listings)}"
+    )
+
+
+def test_posted_at_is_timezone_aware(listings):
+    """Any posted_at value must carry UTC tzinfo so datetime arithmetic never raises."""
+    for l in listings:
+        if l.posted_at is not None:
+            assert l.posted_at.tzinfo is not None, (
+                f"Listing {l.source_listing_id} has naive posted_at"
+            )
+            assert l.posted_at.tzinfo == timezone.utc
+
+
+def test_posted_at_is_sane_year(listings):
+    """posted_at datetimes must be in a plausible range (year >= 2020)."""
+    for l in listings:
+        if l.posted_at is not None:
+            assert l.posted_at.year >= 2020, (
+                f"Listing {l.source_listing_id} has posted_at year {l.posted_at.year}"
+            )
+
+
+def test_listings_without_creation_date_have_none_posted_at(listings):
+    """Listings whose id is absent from the JSON map must have posted_at=None (graceful)."""
+    without_date = [l for l in listings if l.posted_at is None]
+    # The fixture has 32 listings but only 8 have matching JSON ids; rest must be None
+    assert len(without_date) >= 1, (
+        "Expected some listings with posted_at=None (graceful fallback)"
+    )
 
 
 def test_fetch_listings_survives_a_failing_page(settings):

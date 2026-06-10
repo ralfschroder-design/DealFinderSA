@@ -1,7 +1,9 @@
 """Gumtree South Africa adapter — cars, bikes, boats, jetskis."""
 from __future__ import annotations
 
+import json
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 from bs4 import BeautifulSoup
@@ -97,6 +99,9 @@ class GumtreeAdapter(Adapter):
         soup = BeautifulSoup(html, "html.parser")
         anchors = soup.find_all("a", href=_AD_HREF_RE)
 
+        # Build creationDate lookup once per page from the embedded gallery JSON.
+        creation_date_map = _build_creation_date_map(html)
+
         seen_ids: set[str] = set()
         listings: list[Listing] = []
 
@@ -130,6 +135,12 @@ class GumtreeAdapter(Adapter):
                     if img_url and "base64" not in img_url:
                         image_urls.append(img_url)
 
+            # Set posted_at from creationDate map; leave None when absent (graceful).
+            posted_at: datetime | None = None
+            creation_ms = creation_date_map.get(listing_id)
+            if creation_ms is not None:
+                posted_at = datetime.fromtimestamp(creation_ms / 1000, tz=timezone.utc)
+
             listings.append(
                 Listing(
                     source_key="gumtree",
@@ -143,6 +154,7 @@ class GumtreeAdapter(Adapter):
                     town=fields.get("town"),
                     price_zar=price_zar,
                     image_urls=image_urls,
+                    posted_at=posted_at,
                     raw={"href": href},
                 )
             )
@@ -173,6 +185,40 @@ class GumtreeAdapter(Adapter):
                         all_listings.append(listing)
 
         return all_listings
+
+
+def _build_creation_date_map(html: str) -> dict[str, int]:
+    """Extract a {source_listing_id: creationDate_ms} map from the inline gallery JSON.
+
+    Gumtree embeds listing metadata in a JS assignment::
+
+        var galleryAdList_searchGallery = [{...}, ...];
+
+    Each entry has a ``viewSeoUrl`` whose last path segment matches the
+    ``source_listing_id`` used by the adapter (the last segment of the anchor
+    href), and a ``creationDate`` field (Unix timestamp in milliseconds).
+
+    Returns an empty dict if the block is absent or cannot be parsed.
+    """
+    m = re.search(r"var galleryAdList_searchGallery\s*=\s*(\[.*?\]);", html, re.DOTALL)
+    if not m:
+        return {}
+    try:
+        entries = json.loads(m.group(1))
+    except (json.JSONDecodeError, ValueError):
+        return {}
+
+    result: dict[str, int] = {}
+    for entry in entries:
+        creation_ms = entry.get("creationDate")
+        if creation_ms is None:
+            continue
+        seo_url = entry.get("viewSeoUrl", "")
+        parts = seo_url.strip("/").split("/")
+        if parts:
+            listing_id = parts[-1]
+            result[listing_id] = int(creation_ms)
+    return result
 
 
 def _find_card(anchor) -> object | None:

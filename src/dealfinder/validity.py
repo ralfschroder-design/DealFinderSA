@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from dealfinder.config import Settings
 from dealfinder.models import Listing, ValidityResult
 
 # Flags that make a listing unusable (not alertable).
-FATAL_FLAGS = {"missing_price", "price_implausible", "missing_identity", "missing_location"}
+FATAL_FLAGS = {"missing_price", "price_implausible", "missing_identity", "missing_location", "stale"}
 
 
 def evaluate_validity(listing: Listing, settings: Settings) -> ValidityResult:
@@ -26,6 +28,15 @@ def evaluate_validity(listing: Listing, settings: Settings) -> ValidityResult:
 
     if not listing.image_urls:
         flags.append("missing_images")
+
+    if listing.posted_at is not None:
+        posted = listing.posted_at
+        # Treat naive datetimes as UTC so subtraction never raises.
+        if posted.tzinfo is None:
+            posted = posted.replace(tzinfo=timezone.utc)
+        age_days = (datetime.now(timezone.utc) - posted).days
+        if age_days > settings.validity.max_listing_age_days:
+            flags.append("stale")
 
     is_valid = not (set(flags) & FATAL_FLAGS)
     return ValidityResult(is_valid=is_valid, flags=flags)

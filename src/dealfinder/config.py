@@ -26,6 +26,7 @@ class FetchCfg(BaseModel):
 class ValidityCfg(BaseModel):
     min_price_zar: int
     max_price_zar: int
+    max_listing_age_days: int = 120
 
 
 class SourceCfg(BaseModel):

@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from dealfinder.models import Category, Listing
 from dealfinder.validity import evaluate_validity
 
@@ -49,3 +51,35 @@ def test_missing_identity_is_invalid(settings):
     result = evaluate_validity(_listing(make=None, model=None, title=None), settings)
     assert result.is_valid is False
     assert "missing_identity" in result.flags
+
+
+# ── freshness / stale tests ─────────────────────────────────────────────────
+
+def test_very_old_listing_is_stale_and_invalid(settings):
+    """A listing posted 3 years ago must be flagged 'stale' and be invalid."""
+    old_date = datetime.now(timezone.utc) - timedelta(days=3 * 365)
+    result = evaluate_validity(_listing(posted_at=old_date), settings)
+    assert "stale" in result.flags
+    assert result.is_valid is False
+
+
+def test_recent_listing_is_not_stale(settings):
+    """A listing posted today must not be flagged stale and must remain valid."""
+    now = datetime.now(timezone.utc)
+    result = evaluate_validity(_listing(posted_at=now), settings)
+    assert "stale" not in result.flags
+    assert result.is_valid is True
+
+
+def test_no_posted_at_is_not_stale(settings):
+    """A listing with posted_at=None must not be flagged stale (no crash)."""
+    result = evaluate_validity(_listing(posted_at=None), settings)
+    assert "stale" not in result.flags
+
+
+def test_naive_posted_at_treated_as_utc(settings):
+    """A naive (no tzinfo) posted_at that is very old must still be flagged stale."""
+    old_naive = datetime.utcnow() - timedelta(days=3 * 365)
+    result = evaluate_validity(_listing(posted_at=old_naive), settings)
+    assert "stale" in result.flags
+    assert result.is_valid is False

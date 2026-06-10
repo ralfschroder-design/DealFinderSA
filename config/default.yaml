@@ -13,6 +13,7 @@ fetch:
 validity:
   min_price_zar: 5000
   max_price_zar: 15000000
+  max_listing_age_days: 120
 
 sources:
   gumtree:
