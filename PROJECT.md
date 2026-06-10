@@ -38,6 +38,7 @@ Three principles locked 2026-06-08:
 | 2026-06-08 | Implemented **Plan 2 — dedup & clustering** (`docs/plans/2026-06-04-plan-2-dedup-clustering.md`), Tasks 1-6 via subagent-driven development with per-task review. Added: price-independent vehicle `fingerprint`, SA phone extraction, `price_history` (record-on-change) + `vehicle_clusters` view, wired into the pipeline. 36 tests passing. Image pHash + transitive phone-merge deferred. New migration `002_clustering.sql` is user-gated (apply in Supabase during go-live). |
 | 2026-06-08 | **Gumtree becomes the primary source** (cars/bikes/boats/jetskis) scraping openly-served HTML. WeBuyCars dropped for automation — its inventory API is protected by a proof-of-work anti-bot; remains a future option only via an official dealer API (Ralf has a dealer account). Live data: ~126 listings in Supabase across all 4 categories; scrape is resilient (per-page failures isolated). |
 | 2026-06-08 | Implemented **Plan 3 — deal scoring** (`docs/plans/2026-06-08-plan-3-deal-scoring.md`): price-vs-cohort-median + confidence model; `dealfinder score` CLI; auto-runs at end of `run-scrape` (skips gracefully if migration 003 not applied). Scoring proven in-memory on live data. Make/model parsing uses a known-makes dictionary (`src/dealfinder/vehicles.py`) for clean cohorts (Land Rover, Harley-Davidson, etc.). Local FastAPI search UI (`dealfinder serve`) with filters, "Best deal" sort, deal badges — test harness only. 100 tests passing. All code pushed to private GitHub (`ralfschroder-design/DealFinderSA`). |
+| 2026-06-10 | **Plan 7 — scheduling + run-from-git deploy docs.** Created `docs/deploy.md` (one-time setup, scheduled command, Linux/cron production path, Windows Task Scheduler local-testing path, politeness guidance). Created `scripts/run_scrape.sh` (cron wrapper, no activate needed). Created `scripts/register_scheduled_task.ps1` (idempotent Windows Task Scheduler registration, SupportsShouldProcess, -WhatIf safe). No core code changes; 137 tests still passing. |
 
 ## Key Files & Paths
 | Path / URL | Purpose |
@@ -53,6 +54,9 @@ Three principles locked 2026-06-08:
 | `src/dealfinder/scoring.py` | Deal scoring logic (price-vs-cohort-median, confidence) |
 | `src/dealfinder/vehicles.py` | Known-makes dictionary for clean make/model cohort parsing |
 | `src/dealfinder/web.py` | Local FastAPI search UI (test harness only) |
+| `docs/deploy.md` | Deploy + scheduling guide (one-time setup, cron, Windows Task Scheduler) |
+| `scripts/run_scrape.sh` | Linux/cron wrapper — production scheduled run |
+| `scripts/register_scheduled_task.ps1` | Windows Task Scheduler registration — local testing only |
 | `https://github.com/ralfschroder-design/DealFinderSA` | Private GitHub repo (all code) |
 
 ## Open Questions & Blockers
@@ -65,6 +69,6 @@ Three principles locked 2026-06-08:
 ## Next Steps
 1. **Apply `003_scoring.sql`** in the Supabase SQL editor — unlocks persisted deal scores, score display in the local UI, and enables deal-score alerts.
 2. **Plan 4 — email alerts** — watch model + SMTP dispatch when a high-scoring listing matches a saved watch.
-3. **Plan 7 — scheduling (git-deploy)** — cron/Task Scheduler that runs `dealfinder run-scrape` on a schedule; fully deployable from the repo with no local-only state.
-4. **Lovable frontend** — production search UI on Supabase (replaces the local FastAPI test harness).
+3. ~~**Plan 7 — scheduling (git-deploy)**~~ — **DONE 2026-06-10**: `docs/deploy.md`, `scripts/run_scrape.sh`, `scripts/register_scheduled_task.ps1` created. Deploy and schedule docs complete.
+4. **Lovable production frontend** — production search UI on Supabase (replaces the local FastAPI test harness). This is the next major build item once alerts are live.
 5. **More sources** — AutoTrader, Cars.co.za, AutoMart; WeBuyCars via official dealer API when ready.
