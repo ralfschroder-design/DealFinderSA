@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from bs4 import BeautifulSoup
@@ -15,6 +15,14 @@ from dealfinder.models import Category, Listing
 from dealfinder.vehicles import split_make_model
 
 BASE = "https://www.gumtree.co.za"
+
+# --- Detail-page date patterns ---
+# Primary: structured ISO date in JSON-LD / inline script
+_AVAIL_STARTS_RE = re.compile(r'"availabilityStarts"\s*:\s*"(\d{4}-\d{2}-\d{2})"')
+# Fallback: relative text  "N day(s)|week(s)|month(s)|year(s) ago"
+_RELATIVE_AGE_RE = re.compile(r"(\d+)\s+(day|week|month|year)s?\s+ago", re.IGNORECASE)
+
+_RELATIVE_DAYS = {"day": 1, "week": 7, "month": 30, "year": 365}
 
 CATEGORY_PATHS: dict[Category, str] = {
     Category.CAR:    "/s-cars-bakkies/v1c9077",
@@ -85,6 +93,39 @@ def title_slug_to_readable(slug: str) -> str | None:
     if not slug:
         return None
     return slug.replace("-", " ").title()
+
+
+def parse_posted_at(detail_html: str, now: datetime | None = None) -> datetime | None:
+    """Extract the listing's posted date from a Gumtree detail-page HTML string.
+
+    Primary path: ``"availabilityStarts":"YYYY-MM-DD"`` in the page source.
+    Returns a UTC-midnight :class:`datetime` when found.
+
+    Fallback: relative text such as ``N days/weeks/months/years ago`` found in
+    a ``creation-date`` span or a ``creationDate`` JSON field.  Resolved
+    against ``now`` (UTC) so callers can inject a fixed reference for tests.
+
+    Returns ``None`` when neither signal is present.
+    """
+    # --- Primary: structured ISO date ---
+    m = _AVAIL_STARTS_RE.search(detail_html)
+    if m:
+        try:
+            y, mo, d = map(int, m.group(1).split("-"))
+            return datetime(y, mo, d, tzinfo=timezone.utc)
+        except ValueError:
+            pass  # fall through to relative
+
+    # --- Fallback: relative age text ---
+    m2 = _RELATIVE_AGE_RE.search(detail_html)
+    if m2:
+        n = int(m2.group(1))
+        unit = m2.group(2).lower()
+        days = n * _RELATIVE_DAYS.get(unit, 1)
+        base = now if now is not None else datetime.now(timezone.utc)
+        return base - timedelta(days=days)
+
+    return None
 
 
 class GumtreeAdapter(Adapter):
@@ -185,6 +226,43 @@ class GumtreeAdapter(Adapter):
                         all_listings.append(listing)
 
         return all_listings
+
+    def enrich_posted_at(
+        self,
+        fetcher,
+        listings: list,
+        *,
+        cap: int | None = None,
+        now: datetime | None = None,
+    ) -> int:
+        """Fetch each undated listing's detail page and populate ``posted_at``.
+
+        Args:
+            fetcher: Object with a ``get_text(url)`` method.
+            listings: Listings to enrich (only those with ``posted_at is None``
+                      are processed).
+            cap: Maximum number of detail fetches to perform.  ``None`` means
+                 no limit.
+            now: Reference time for relative-date parsing (injected for tests).
+
+        Returns:
+            The number of listings that were successfully dated.
+        """
+        dated = 0
+        for listing in listings:
+            if listing.posted_at is not None:
+                continue
+            if cap is not None and dated >= cap:
+                break
+            try:
+                html = fetcher.get_text(listing.url)
+                pa = parse_posted_at(html, now)
+                if pa is not None:
+                    listing.posted_at = pa
+                    dated += 1
+            except Exception:
+                continue  # one bad page must not abort the loop
+        return dated
 
 
 def _build_creation_date_map(html: str) -> dict[str, int]:

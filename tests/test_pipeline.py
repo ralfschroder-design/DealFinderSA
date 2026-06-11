@@ -1,4 +1,7 @@
+from datetime import datetime, timezone
+
 from dealfinder.adapters.base import Adapter
+from dealfinder.config import SourceCfg
 from dealfinder.db import InMemoryRepository
 from dealfinder.models import Category, Listing
 from dealfinder.pipeline import run_pipeline
@@ -100,3 +103,139 @@ def test_pipeline_same_vehicle_shares_fingerprint(settings):
     run_pipeline(adapters=[FakeAdapter([a, b])], fetcher=None, repo=repo, settings=settings)
 
     assert repo.get("fake", "1").fingerprint == repo.get("fake", "2").fingerprint
+
+
+# ---------------------------------------------------------------------------
+# Pipeline enrichment wiring (fetch_detail / enrich_posted_at)
+# ---------------------------------------------------------------------------
+
+class EnrichableAdapter(FakeAdapter):
+    """FakeAdapter whose enrich_posted_at sets a fixed posted_at on undated listings."""
+
+    def __init__(self, listings, fixed_date=None):
+        super().__init__(listings)
+        self.fixed_date = fixed_date or datetime(2026, 4, 24, tzinfo=timezone.utc)
+        self.enrich_calls: list = []
+
+    def enrich_posted_at(self, fetcher, listings, *, cap=None, now=None):
+        self.enrich_calls.append({"count": len(listings), "cap": cap})
+        dated = 0
+        for listing in listings:
+            if listing.posted_at is None:
+                listing.posted_at = self.fixed_date
+                dated += 1
+        return dated
+
+
+class _DetailFetcher:
+    """Minimal fetcher stub — never actually called in these wiring tests."""
+    def get_text(self, url, **kwargs):
+        return ""
+
+
+def _settings_with_fetch_detail(base_settings, fetch_detail=True, max_detail_fetches=60):
+    """Return a copy of settings with gumtree/fake source config that has fetch_detail enabled."""
+    from dealfinder.config import Home, FetchCfg, ValidityCfg, Settings
+    return Settings(
+        home=base_settings.home,
+        fetch=base_settings.fetch,
+        validity=base_settings.validity,
+        sources={
+            "fake": SourceCfg(
+                enabled=True,
+                max_pages=1,
+                fetch_detail=fetch_detail,
+                max_detail_fetches=max_detail_fetches,
+            )
+        },
+    )
+
+
+def test_pipeline_enriches_posted_at_when_fetch_detail_enabled(settings):
+    """Pipeline calls enrich_posted_at before validity when fetch_detail=True."""
+    listing = _listing("e1", 339900)
+    listing.posted_at = None
+
+    adapter = EnrichableAdapter([listing])
+    repo = InMemoryRepository()
+    cfg = _settings_with_fetch_detail(settings)
+    fetcher = _DetailFetcher()
+
+    run_pipeline(adapters=[adapter], fetcher=fetcher, repo=repo, settings=cfg)
+
+    # enrich_posted_at must have been called
+    assert len(adapter.enrich_calls) == 1
+    # posted_at must be set on the stored listing
+    stored = repo.get("fake", "e1")
+    assert stored.posted_at == datetime(2026, 4, 24, tzinfo=timezone.utc)
+
+
+def test_pipeline_skips_enrich_when_fetch_detail_disabled(settings):
+    """Pipeline must NOT call enrich_posted_at when fetch_detail=False."""
+    listing = _listing("e2", 339900)
+    listing.posted_at = None
+
+    adapter = EnrichableAdapter([listing])
+    repo = InMemoryRepository()
+    cfg = _settings_with_fetch_detail(settings, fetch_detail=False)
+    fetcher = _DetailFetcher()
+
+    run_pipeline(adapters=[adapter], fetcher=fetcher, repo=repo, settings=cfg)
+
+    assert len(adapter.enrich_calls) == 0
+
+
+def test_pipeline_skips_enrich_when_fetcher_is_none(settings):
+    """Pipeline must NOT call enrich_posted_at when fetcher is None."""
+    listing = _listing("e3", 339900)
+    listing.posted_at = None
+
+    adapter = EnrichableAdapter([listing])
+    repo = InMemoryRepository()
+    cfg = _settings_with_fetch_detail(settings, fetch_detail=True)
+
+    run_pipeline(adapters=[adapter], fetcher=None, repo=repo, settings=cfg)
+
+    assert len(adapter.enrich_calls) == 0
+
+
+def test_pipeline_passes_cap_to_enrich(settings):
+    """Pipeline passes max_detail_fetches as cap to enrich_posted_at."""
+    listings = [_listing(str(i), 339900) for i in range(10)]
+    for l in listings:
+        l.posted_at = None
+
+    adapter = EnrichableAdapter(listings)
+    repo = InMemoryRepository()
+    cfg = _settings_with_fetch_detail(settings, max_detail_fetches=3)
+    fetcher = _DetailFetcher()
+
+    run_pipeline(adapters=[adapter], fetcher=fetcher, repo=repo, settings=cfg)
+
+    assert adapter.enrich_calls[0]["cap"] == 3
+
+
+def test_pipeline_skips_already_dated_in_repo(settings):
+    """Listings whose (source_key, id) are in repo.dated_keys() must not be passed to enrich."""
+    # Two undated listings — we'll pre-seed one into the repo as already dated
+    l1 = _listing("already", 339900)
+    l1.posted_at = None
+    l2 = _listing("fresh", 339900)
+    l2.posted_at = None
+
+    adapter = EnrichableAdapter([l1, l2])
+    repo = InMemoryRepository()
+
+    # Pre-seed l1 as already dated in the repo
+    from copy import deepcopy
+    seeded = deepcopy(l1)
+    seeded.posted_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    repo.upsert_listings([seeded])
+
+    cfg = _settings_with_fetch_detail(settings)
+    fetcher = _DetailFetcher()
+
+    run_pipeline(adapters=[adapter], fetcher=fetcher, repo=repo, settings=cfg)
+
+    # Only l2 (fresh) should have been passed to enrich
+    assert adapter.enrich_calls[0]["count"] == 1

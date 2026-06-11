@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from dealfinder.db import InMemoryRepository, listing_to_row
 from dealfinder.models import Category, Listing, RunStats
@@ -290,3 +290,42 @@ def test_alerted_keys_returns_copy():
     keys = repo.alerted_keys()
     keys.add(("rogue", "99"))
     assert ("rogue", "99") not in repo.alerted_keys()
+
+
+# ---------------------------------------------------------------------------
+# dated_keys — listings whose posted_at is already populated
+# ---------------------------------------------------------------------------
+
+def test_dated_keys_empty_when_no_listings():
+    repo = InMemoryRepository()
+    assert repo.dated_keys() == set()
+
+
+def test_dated_keys_returns_only_dated(sample_listing):
+    from copy import deepcopy
+
+    repo = InMemoryRepository()
+    # One listing with posted_at set
+    dated = deepcopy(sample_listing)
+    dated.source_listing_id = "dated-1"
+    dated.posted_at = datetime(2026, 4, 24, tzinfo=timezone.utc)
+
+    # One listing without posted_at
+    undated = deepcopy(sample_listing)
+    undated.source_listing_id = "undated-1"
+    undated.posted_at = None
+
+    repo.upsert_listings([dated, undated])
+
+    keys = repo.dated_keys()
+    assert ("webuycars", "dated-1") in keys
+    assert ("webuycars", "undated-1") not in keys
+    assert len(keys) == 1
+
+
+def test_dated_keys_returns_copy():
+    """Mutating the returned set must not corrupt internal repo state."""
+    repo = InMemoryRepository()
+    keys = repo.dated_keys()
+    keys.add(("rogue", "99"))
+    assert ("rogue", "99") not in repo.dated_keys()

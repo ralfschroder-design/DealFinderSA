@@ -1,12 +1,12 @@
 """Tests for GumtreeAdapter.parse_page — offline, against a saved fixture."""
 from __future__ import annotations
 
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
-from dealfinder.adapters.gumtree import GumtreeAdapter
+from dealfinder.adapters.gumtree import GumtreeAdapter, parse_posted_at
 from dealfinder.models import Category, Listing
 
 FIXTURE = Path(__file__).parent / "fixtures" / "gumtree_cars.html"
@@ -143,3 +143,178 @@ def test_fetch_listings_survives_a_failing_page(settings):
     listings = GumtreeAdapter().fetch_listings(FlakyFetcher(), settings)
     assert len(listings) >= 1
     assert listings[0].source_listing_id == "999"
+
+
+# ---------------------------------------------------------------------------
+# parse_posted_at — detail-page date extraction
+# ---------------------------------------------------------------------------
+
+DETAIL_FIXTURE = Path(__file__).parent / "fixtures" / "gumtree_detail.html"
+
+
+def test_parse_posted_at_from_availability_starts():
+    """Primary path: availabilityStarts JSON key yields exact UTC midnight date."""
+    html = DETAIL_FIXTURE.read_text(encoding="utf-8")
+    result = parse_posted_at(html)
+    assert result is not None
+    assert result == datetime(2026, 4, 24, tzinfo=timezone.utc)
+
+
+def test_parse_posted_at_relative_only_with_injected_now():
+    """Fallback: relative creation-date text is resolved against an injected now."""
+    # HTML has only a relative date, no availabilityStarts
+    html = '<span class="creation-date">9 days ago</span>'
+    now = datetime(2026, 6, 10, 12, 0, 0, tzinfo=timezone.utc)
+    result = parse_posted_at(html, now=now)
+    assert result is not None
+    expected = now - timedelta(days=9)
+    assert abs((result - expected).total_seconds()) < 86400  # within 1 day
+
+
+def test_parse_posted_at_relative_weeks():
+    """Fallback: '2 weeks ago' resolves to now minus 14 days."""
+    html = '<span class="creation-date">2 weeks ago</span>'
+    now = datetime(2026, 6, 10, 0, 0, 0, tzinfo=timezone.utc)
+    result = parse_posted_at(html, now=now)
+    assert result is not None
+    expected = now - timedelta(days=14)
+    assert abs((result - expected).total_seconds()) < 86400
+
+
+def test_parse_posted_at_relative_months():
+    """Fallback: '1 month ago' resolves to now minus 30 days."""
+    html = '<span class="creation-date">1 month ago</span>'
+    now = datetime(2026, 6, 10, 0, 0, 0, tzinfo=timezone.utc)
+    result = parse_posted_at(html, now=now)
+    assert result is not None
+    expected = now - timedelta(days=30)
+    assert abs((result - expected).total_seconds()) < 86400
+
+
+def test_parse_posted_at_json_creation_date_fallback():
+    """Fallback also picks up creationDate in inline JSON."""
+    html = '{"creationDate":"3 days ago"}'
+    now = datetime(2026, 6, 10, 0, 0, 0, tzinfo=timezone.utc)
+    result = parse_posted_at(html, now=now)
+    assert result is not None
+    expected = now - timedelta(days=3)
+    assert abs((result - expected).total_seconds()) < 86400
+
+
+def test_parse_posted_at_empty_returns_none():
+    """No date signals at all → None (graceful)."""
+    assert parse_posted_at("") is None
+    assert parse_posted_at("<html><body>no date here</body></html>") is None
+
+
+def test_parse_posted_at_prefers_availability_starts_over_relative():
+    """When both signals are present, structured date wins."""
+    html = (
+        '"availabilityStarts":"2026-03-15"'
+        '<span class="creation-date">60 days ago</span>'
+    )
+    now = datetime(2026, 6, 10, 0, 0, 0, tzinfo=timezone.utc)
+    result = parse_posted_at(html, now=now)
+    assert result == datetime(2026, 3, 15, tzinfo=timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# enrich_posted_at — GumtreeAdapter detail-page enrichment
+# ---------------------------------------------------------------------------
+
+class FakeFetcher:
+    """Returns the detail fixture HTML for any URL."""
+
+    def __init__(self, html: str):
+        self.html = html
+        self.calls: list[str] = []
+
+    def get_text(self, url, **kwargs):
+        self.calls.append(url)
+        return self.html
+
+
+def _undated_listing(lid: str) -> Listing:
+    return Listing(
+        source_key="gumtree",
+        source_listing_id=lid,
+        url=f"https://www.gumtree.co.za/a-cars-bakkies/durban/some-car/{lid}",
+        category=Category.CAR,
+        title="Some car",
+        posted_at=None,
+    )
+
+
+def test_enrich_posted_at_sets_date_on_undated_listings():
+    """enrich_posted_at fetches each undated listing's detail page and sets posted_at."""
+    detail_html = DETAIL_FIXTURE.read_text(encoding="utf-8")
+    fetcher = FakeFetcher(detail_html)
+    listings = [_undated_listing("aaa"), _undated_listing("bbb")]
+
+    count = GumtreeAdapter().enrich_posted_at(fetcher, listings)
+
+    assert count == 2
+    for listing in listings:
+        assert listing.posted_at == datetime(2026, 4, 24, tzinfo=timezone.utc)
+    assert len(fetcher.calls) == 2
+
+
+def test_enrich_posted_at_respects_cap():
+    """cap kwarg limits the number of detail fetches performed."""
+    detail_html = DETAIL_FIXTURE.read_text(encoding="utf-8")
+    fetcher = FakeFetcher(detail_html)
+    listings = [_undated_listing(str(i)) for i in range(5)]
+
+    count = GumtreeAdapter().enrich_posted_at(fetcher, listings, cap=2)
+
+    assert count == 2
+    assert len(fetcher.calls) == 2
+    # Only the first two should have posted_at set
+    assert listings[0].posted_at is not None
+    assert listings[1].posted_at is not None
+    assert listings[2].posted_at is None
+
+
+def test_enrich_posted_at_skips_already_dated():
+    """Listings that already have posted_at must not be re-fetched."""
+    detail_html = DETAIL_FIXTURE.read_text(encoding="utf-8")
+    fetcher = FakeFetcher(detail_html)
+
+    already_dated = _undated_listing("already")
+    already_dated.posted_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    undated = _undated_listing("fresh")
+
+    count = GumtreeAdapter().enrich_posted_at(fetcher, [already_dated, undated])
+
+    assert count == 1
+    # already_dated unchanged
+    assert already_dated.posted_at == datetime(2026, 1, 1, tzinfo=timezone.utc)
+    # undated now dated
+    assert undated.posted_at == datetime(2026, 4, 24, tzinfo=timezone.utc)
+    assert len(fetcher.calls) == 1
+
+
+def test_enrich_posted_at_tolerates_fetch_failure():
+    """A failing detail fetch must not abort enrichment of subsequent listings."""
+
+    class BrokenFetcher:
+        def __init__(self, good_html: str):
+            self.good_html = good_html
+            self.calls = 0
+
+        def get_text(self, url, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("network timeout")
+            return self.good_html
+
+    detail_html = DETAIL_FIXTURE.read_text(encoding="utf-8")
+    fetcher = BrokenFetcher(detail_html)
+    listings = [_undated_listing("fail"), _undated_listing("ok")]
+
+    count = GumtreeAdapter().enrich_posted_at(fetcher, listings)
+
+    # first listing failed (graceful), second succeeded
+    assert count == 1
+    assert listings[0].posted_at is None
+    assert listings[1].posted_at == datetime(2026, 4, 24, tzinfo=timezone.utc)

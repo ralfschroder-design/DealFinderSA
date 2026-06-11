@@ -42,6 +42,7 @@ class ListingRepository(Protocol):
     ) -> list[Listing]: ...
     def alerted_keys(self) -> set[tuple[str, str]]: ...
     def record_alerts(self, listings: list[Listing]) -> int: ...
+    def dated_keys(self) -> set[tuple[str, str]]: ...
 
 
 class InMemoryRepository:
@@ -159,6 +160,14 @@ class InMemoryRepository:
                 self.alerts.add(key)
                 added += 1
         return added
+
+    def dated_keys(self) -> set[tuple[str, str]]:
+        """Return the set of (source_key, source_listing_id) whose posted_at is set."""
+        return {
+            (listing.source_key, listing.source_listing_id)
+            for listing in self._store.values()
+            if listing.posted_at is not None
+        }
 
 
 class SupabaseRepository:
@@ -282,3 +291,13 @@ class SupabaseRepository:
             rows, on_conflict="source_key,source_listing_id"
         ).execute()
         return len(rows)
+
+    def dated_keys(self) -> set[tuple[str, str]]:
+        """Return the set of (source_key, source_listing_id) whose posted_at is already set."""
+        resp = (
+            self._client.table("listings")
+            .select("source_key, source_listing_id")
+            .not_.is_("posted_at", "null")
+            .execute()
+        )
+        return {(row["source_key"], row["source_listing_id"]) for row in resp.data}

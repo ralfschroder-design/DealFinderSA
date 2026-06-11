@@ -27,6 +27,28 @@ def run_pipeline(
             stats.errors.append(f"{adapter.key}: {exc}")
             continue
 
+        # Enrich posted_at from detail pages when configured and a fetcher is available.
+        src_cfg = settings.sources.get(adapter.key)
+        if (
+            fetcher is not None
+            and src_cfg is not None
+            and getattr(src_cfg, "fetch_detail", False)
+        ):
+            already = repo.dated_keys()
+            need = [
+                x for x in listings
+                if x.posted_at is None
+                and (x.source_key, x.source_listing_id) not in already
+            ]
+            try:
+                adapter.enrich_posted_at(
+                    fetcher,
+                    need,
+                    cap=getattr(src_cfg, "max_detail_fetches", None),
+                )
+            except Exception as exc:
+                stats.errors.append(f"{adapter.key} enrich: {exc}")
+
         for listing in listings:
             stats.fetched += 1
             listing.fingerprint = compute_fingerprint(listing)

@@ -32,6 +32,8 @@ class ValidityCfg(BaseModel):
 class SourceCfg(BaseModel):
     enabled: bool = False
     max_pages: int = 1
+    fetch_detail: bool = True
+    max_detail_fetches: int = 60
 
 
 class AlertsCfg(BaseModel):
