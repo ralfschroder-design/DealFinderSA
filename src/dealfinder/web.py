@@ -152,6 +152,7 @@ def render_page(listings: list[Listing], filters: dict[str, Any]) -> str:
     f_valid_only = filters.get("valid_only", True)
     f_sort = filters.get("sort") or "recent"
     f_min_score = filters.get("min_score") or ""
+    f_min_year = filters.get("min_year") or ""
 
     f_valid_only_str = "1" if f_valid_only else "0"
 
@@ -217,6 +218,10 @@ def render_page(listings: list[Listing], filters: dict[str, Any]) -> str:
           <input type="number" name="min_score" id="f-min-score" value="{f_min_score}" min="0" max="100" placeholder="any">
         </div>
         <div class="form-group">
+          <label for="f-min-year">Min year</label>
+          <input type="number" name="min_year" id="f-min-year" value="{f_min_year}" min="1900" max="2100" placeholder="any">
+        </div>
+        <div class="form-group">
           <label for="f-valid">Listing status</label>
           {valid_only_select}
         </div>
@@ -254,6 +259,7 @@ def create_app(repo: ListingRepository) -> FastAPI:
         valid_only: str | None = None,
         sort: str = "recent",
         min_score: str | None = None,
+        min_year: str | None = None,
     ):
         # Normalise text fields — blank string → None
         make = _clean(make)
@@ -264,6 +270,7 @@ def create_app(repo: ListingRepository) -> FastAPI:
         min_price_int = _int_or_none(min_price)
         max_price_int = _int_or_none(max_price)
         min_score_int = _int_or_none(min_score)
+        min_year_int = _int_or_none(min_year)
 
         # valid_only: False only for explicit opt-out values; default (absent) → True
         _falsy = {"0", "false", "no", "off"}
@@ -288,6 +295,7 @@ def create_app(repo: ListingRepository) -> FastAPI:
             sort=sort,
             limit=200,
             min_score=min_score_int,
+            min_year=min_year_int,
         )
 
         filters = {
@@ -300,6 +308,7 @@ def create_app(repo: ListingRepository) -> FastAPI:
             "valid_only": valid_only_bool,
             "sort": sort,
             "min_score": min_score_int,
+            "min_year": min_year_int,
         }
 
         return HTMLResponse(content=render_page(listings, filters))

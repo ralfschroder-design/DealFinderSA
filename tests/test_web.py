@@ -193,6 +193,67 @@ def test_deal_badge_not_shown_for_unscored_listing() -> None:
     assert "under market" not in resp.text
 
 
+def test_min_year_filter_returns_200(client: TestClient) -> None:
+    resp = client.get("/?min_year=2015")
+    assert resp.status_code == 200
+
+
+def test_min_year_filter_shows_recent_hides_old() -> None:
+    """/?min_year=2015 must show the 2019 Hilux and 2020 Yamaha but hide a 1998 car."""
+    r = InMemoryRepository()
+    r.upsert_listings([
+        Listing(
+            source_key="test",
+            source_listing_id="modern-1",
+            url="https://example.com/modern-1",
+            category=Category.CAR,
+            title="2019 Toyota Hilux",
+            make="Toyota",
+            year=2019,
+            price_zar=339900,
+            is_valid=True,
+        ),
+        Listing(
+            source_key="test",
+            source_listing_id="ancient-1",
+            url="https://example.com/ancient-1",
+            category=Category.CAR,
+            title="1998 Datsun 1400",
+            make="Datsun",
+            year=1998,
+            price_zar=50000,
+            is_valid=True,
+        ),
+    ])
+    c = TestClient(create_app(r))
+    resp = c.get("/?min_year=2015")
+    assert resp.status_code == 200
+    assert "Toyota" in resp.text
+    assert "Datsun" not in resp.text
+
+
+def test_min_year_prefilled_in_form() -> None:
+    """The min_year input must be pre-filled when the filter is active."""
+    r = InMemoryRepository()
+    r.upsert_listings([
+        Listing(
+            source_key="test",
+            source_listing_id="car-x",
+            url="https://example.com/car-x",
+            category=Category.CAR,
+            title="2020 BMW 3 Series",
+            make="BMW",
+            year=2020,
+            price_zar=400000,
+            is_valid=True,
+        ),
+    ])
+    c = TestClient(create_app(r))
+    resp = c.get("/?min_year=2018")
+    assert resp.status_code == 200
+    assert 'value="2018"' in resp.text
+
+
 def test_xss_escaping() -> None:
     """Titles with HTML special chars must be escaped, not rendered raw."""
     r = InMemoryRepository()

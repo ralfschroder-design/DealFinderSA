@@ -39,6 +39,7 @@ class ListingRepository(Protocol):
         sort: str = "recent",
         limit: int = 200,
         min_score: int | None = None,
+        min_year: int | None = None,
     ) -> list[Listing]: ...
     def alerted_keys(self) -> set[tuple[str, str]]: ...
     def record_alerts(self, listings: list[Listing]) -> int: ...
@@ -100,6 +101,7 @@ class InMemoryRepository:
         sort: str = "recent",
         limit: int = 200,
         min_score: int | None = None,
+        min_year: int | None = None,
     ) -> list[Listing]:
         results: list[Listing] = []
         price_bound_active = min_price is not None or max_price is not None
@@ -132,6 +134,10 @@ class InMemoryRepository:
                 continue
             if min_score is not None and (
                 listing.deal_score is None or listing.deal_score < min_score
+            ):
+                continue
+            if min_year is not None and (
+                listing.year is None or listing.year < min_year
             ):
                 continue
             results.append(listing)
@@ -238,6 +244,7 @@ class SupabaseRepository:
         sort: str = "recent",
         limit: int = 200,
         min_score: int | None = None,
+        min_year: int | None = None,
     ) -> list[Listing]:
         query = self._client.table("listings").select("*")
         if category is not None:
@@ -256,6 +263,8 @@ class SupabaseRepository:
             query = query.eq("is_valid", True)
         if min_score is not None:
             query = query.gte("deal_score", min_score)
+        if min_year is not None:
+            query = query.gte("year", min_year)
         if sort == "price_asc":
             query = query.order("price_zar", desc=False)
         elif sort == "price_desc":

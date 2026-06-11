@@ -329,3 +329,88 @@ def test_dated_keys_returns_copy():
     keys = repo.dated_keys()
     keys.add(("rogue", "99"))
     assert ("rogue", "99") not in repo.dated_keys()
+
+
+# ---------------------------------------------------------------------------
+# min_year filter
+# ---------------------------------------------------------------------------
+
+def _make_repo_with_years() -> InMemoryRepository:
+    """Repo seeded with listings from 1998, 2015, 2022, and one with year=None."""
+    repo = InMemoryRepository()
+    repo.upsert_listings([
+        Listing(
+            source_key="s",
+            source_listing_id="old-car",
+            url="https://example.com/old",
+            category=Category.CAR,
+            title="1998 Datsun 1400",
+            make="Datsun",
+            year=1998,
+            price_zar=50000,
+            is_valid=True,
+        ),
+        Listing(
+            source_key="s",
+            source_listing_id="mid-car",
+            url="https://example.com/mid",
+            category=Category.CAR,
+            title="2015 VW Polo",
+            make="VW",
+            year=2015,
+            price_zar=150000,
+            is_valid=True,
+        ),
+        Listing(
+            source_key="s",
+            source_listing_id="new-car",
+            url="https://example.com/new",
+            category=Category.CAR,
+            title="2022 Toyota Fortuner",
+            make="Toyota",
+            year=2022,
+            price_zar=650000,
+            is_valid=True,
+        ),
+        Listing(
+            source_key="s",
+            source_listing_id="no-year",
+            url="https://example.com/no-year",
+            category=Category.CAR,
+            title="Unknown year listing",
+            make="Ford",
+            year=None,
+            price_zar=200000,
+            is_valid=True,
+        ),
+    ])
+    return repo
+
+
+def test_search_listings_min_year_excludes_old_and_null():
+    """min_year=2010 must return only the 2015 and 2022 listings."""
+    repo = _make_repo_with_years()
+    results = repo.search_listings(min_year=2010)
+    ids = {r.source_listing_id for r in results}
+    assert "mid-car" in ids       # 2015 — passes
+    assert "new-car" in ids       # 2022 — passes
+    assert "old-car" not in ids   # 1998 — excluded
+    assert "no-year" not in ids   # year=None — excluded
+
+
+def test_search_listings_min_year_none_returns_all():
+    """min_year=None (default) must not filter anything."""
+    repo = _make_repo_with_years()
+    results = repo.search_listings(min_year=None)
+    assert len(results) == 4
+
+
+def test_search_listings_min_year_exact_boundary():
+    """min_year equal to a listing's year must include that listing."""
+    repo = _make_repo_with_years()
+    results = repo.search_listings(min_year=2015)
+    ids = {r.source_listing_id for r in results}
+    assert "mid-car" in ids   # 2015 == 2015 — included
+    assert "new-car" in ids   # 2022 >= 2015 — included
+    assert "old-car" not in ids
+    assert "no-year" not in ids
