@@ -49,3 +49,10 @@ def test_variant_normalised():
 def test_fingerprint_is_stable_hex_string():
     fp = compute_fingerprint(_car())
     assert isinstance(fp, str) and len(fp) == 16
+
+
+def test_make_aliases_share_fingerprint():
+    # The same vehicle listed under "VW" and "Volkswagen" must cluster.
+    a = _car(make="VW", model="Golf")
+    b = _car(make="Volkswagen", model="Golf")
+    assert compute_fingerprint(a) == compute_fingerprint(b)

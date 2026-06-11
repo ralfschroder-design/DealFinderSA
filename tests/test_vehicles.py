@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from dealfinder.vehicles import split_make_model
+from dealfinder.vehicles import canonical_make, split_make_model
 
 
 # ---------------------------------------------------------------------------
@@ -94,9 +94,9 @@ def test_plus_separator():
 
 
 def test_vw_alias():
-    """'vw' is a known make alias."""
+    """'vw' normalises to the canonical make 'Volkswagen'."""
     make, model, variant = split_make_model("2016-vw-golf-7-tdi")
-    assert make is not None and make.lower() == "vw"
+    assert make == "Volkswagen"
     assert model is not None and model.lower() == "golf"
 
 
@@ -104,3 +104,55 @@ def test_returns_tuple_of_three():
     result = split_make_model("2019-toyota-hilux")
     assert isinstance(result, tuple)
     assert len(result) == 3
+
+
+def test_split_make_model_canonicalises_mercedes_shorthand():
+    """A bare 'mercedes' slug resolves to the canonical 'Mercedes-Benz'."""
+    make, _model, _variant = split_make_model("2019-mercedes-c200-amg")
+    assert make == "Mercedes-Benz"
+
+
+# ---------------------------------------------------------------------------
+# canonical_make — alias normalisation (single source of truth for cohorts)
+# ---------------------------------------------------------------------------
+
+def test_canonical_make_vw():
+    assert canonical_make("vw") == "Volkswagen"
+    assert canonical_make("VW") == "Volkswagen"
+    assert canonical_make("Volkswagen") == "Volkswagen"
+
+
+def test_canonical_make_mercedes():
+    assert canonical_make("mercedes") == "Mercedes-Benz"
+    assert canonical_make("Merc") == "Mercedes-Benz"
+    assert canonical_make("Mercedes-Benz") == "Mercedes-Benz"
+
+
+def test_canonical_make_harley():
+    assert canonical_make("harley") == "Harley-Davidson"
+    assert canonical_make("Harley-Davidson") == "Harley-Davidson"
+
+
+def test_canonical_make_gwm_great_wall():
+    assert canonical_make("Great Wall") == "GWM"
+    assert canonical_make("gwm") == "GWM"
+
+
+def test_canonical_make_chev():
+    assert canonical_make("chev") == "Chevrolet"
+    assert canonical_make("chevy") == "Chevrolet"
+
+
+def test_canonical_make_passthrough_unknown():
+    """Unknown / already-canonical makes are returned unchanged."""
+    assert canonical_make("Toyota") == "Toyota"
+    assert canonical_make("Ford") == "Ford"
+
+
+def test_canonical_make_handles_whitespace():
+    assert canonical_make("  vw  ") == "Volkswagen"
+
+
+def test_canonical_make_none_and_empty():
+    assert canonical_make(None) is None
+    assert canonical_make("") == ""

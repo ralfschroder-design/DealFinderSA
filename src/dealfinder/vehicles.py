@@ -106,6 +106,45 @@ def _normalise(text: str) -> str:
     return text
 
 
+# ---------------------------------------------------------------------------
+# Canonical make aliases
+# ---------------------------------------------------------------------------
+# Maps a *normalised* alias (the output of ``_normalise`` — lower-case, no
+# hyphens) to the single canonical display form used everywhere downstream:
+# scoring cohorts, fingerprint clustering, and the make filter. This is the one
+# place to add a new alias so that, e.g., "VW" and "Volkswagen" never split
+# into separate cohorts. Keys MUST be in normalised form (hyphens become
+# spaces), so write "mercedes benz", not "mercedes-benz".
+_MAKE_ALIASES: dict[str, str] = {
+    "vw": "Volkswagen",
+    "volkswagen": "Volkswagen",
+    "mercedes": "Mercedes-Benz",
+    "merc": "Mercedes-Benz",
+    "mercedes benz": "Mercedes-Benz",
+    "harley": "Harley-Davidson",
+    "harley davidson": "Harley-Davidson",
+    "great wall": "GWM",
+    "gwm": "GWM",
+    "chev": "Chevrolet",
+    "chevy": "Chevrolet",
+    "chevrolet": "Chevrolet",
+}
+
+
+def canonical_make(make: str | None) -> str | None:
+    """Resolve a make string to its canonical brand form.
+
+    Known aliases (e.g. ``"vw"`` / ``"VW"`` → ``"Volkswagen"``, ``"Merc"`` →
+    ``"Mercedes-Benz"``) are rewritten to a single canonical display form so
+    they never split into separate scoring cohorts or fingerprint clusters.
+    Any make that is not a known alias — including makes that are already
+    canonical — is returned unchanged. Falsy input is returned as-is.
+    """
+    if not make:
+        return make
+    return _MAKE_ALIASES.get(_normalise(make), make)
+
+
 def split_make_model(text: str) -> tuple[str | None, str | None, str | None]:
     """Split a raw vehicle slug or title into (make, model, variant).
 
@@ -172,4 +211,4 @@ def split_make_model(text: str) -> tuple[str | None, str | None, str | None]:
     variant_tokens = remaining[1:]
     variant: str | None = " ".join(t.title() for t in variant_tokens) if variant_tokens else None
 
-    return (make, model, variant)
+    return (canonical_make(make), model, variant)

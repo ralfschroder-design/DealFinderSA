@@ -60,3 +60,25 @@ def test_no_score_without_make_or_model_or_price():
     ref = {}
     assert score_listing(_l(250000, make=None), ref) is None
     assert score_listing(_l(None), ref) is None
+
+
+def test_vw_and_volkswagen_merge_into_one_cohort():
+    ref = build_market_reference([
+        _l(280000, make="VW", lid=1),
+        _l(320000, make="Volkswagen", lid=2),
+    ])
+    assert len(ref) == 1
+    stat = next(iter(ref.values()))
+    assert stat["count"] == 2 and stat["median"] == 300000
+
+
+def test_make_alias_enables_scoring():
+    # Two spellings of the same make reach the >=2 cohort threshold, so a
+    # third listing can now be scored where before it could not.
+    ref = build_market_reference([
+        _l(280000, make="VW", lid=1),
+        _l(320000, make="Volkswagen", lid=2),
+    ])
+    r = score_listing(_l(270000, make="vw"), ref)  # 10% under merged median
+    assert r is not None
+    assert r["deal_score"] == 75

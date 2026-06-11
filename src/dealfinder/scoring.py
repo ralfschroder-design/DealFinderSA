@@ -3,6 +3,7 @@ from __future__ import annotations
 import statistics
 
 from dealfinder.models import Listing
+from dealfinder.vehicles import canonical_make
 
 
 def _norm(s: str | None) -> str:
@@ -12,7 +13,7 @@ def _norm(s: str | None) -> str:
 def cohort_key(listing: Listing) -> tuple | None:
     if not (listing.make and listing.model):
         return None
-    return (listing.category.value, _norm(listing.make), _norm(listing.model), listing.year)
+    return (listing.category.value, _norm(canonical_make(listing.make)), _norm(listing.model), listing.year)
 
 
 def build_market_reference(listings: list[Listing]) -> dict[tuple, dict]:

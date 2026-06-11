@@ -10,7 +10,7 @@
 - Project root: `C:\Users\rschrode\Projects\DealFinderSA` (Windows). Python venv at `.venv`. Run python as `.\.venv\Scripts\python.exe`.
 - Private GitHub repo: `https://github.com/ralfschroder-design/DealFinderSA` (branch `master`). `.env` is git-ignored (holds Supabase + SMTP secrets) — NEVER commit it.
 - DB: Supabase (cloud Postgres). Creds in `.env` (`SUPABASE_URL`, `SUPABASE_KEY` = service_role).
-- Run tests: `.\.venv\Scripts\python.exe -m pytest -q` (currently **170 passing**).
+- Run tests: `.\.venv\Scripts\python.exe -m pytest -q` (currently **182 passing**).
 - CLI: `python -m dealfinder.cli {init-db|run-scrape|score|alert|serve}`.
 - Network ops (scrape/push/serve) need the shell sandbox disabled.
 
@@ -59,11 +59,11 @@ Gumtree (cars/bikes/boats/jetskis)
 | `adapters/__init__.py` | `_ALL` registry + `build_enabled_adapters(settings)`. |
 | `adapters/webuycars.py` | WeBuyCars adapter (JSON API). **Disabled** — blocked by proof-of-work anti-bot (see §7). |
 | `adapters/gumtree.py` | **PRIMARY** source. HTML scrape of Gumtree category pages; per-listing data from the `/a-<cat>/<town>/<slug>/<id>` anchor + card (price `span.ad-price`, image `img[data-src]`). Global cross-category dedup; per-page failure isolation. Category→path map (cars `/s-cars-bakkies/v1c9077`, bikes `/s-motorcycles-scooters/v1c9027`, boats `/s-boats-watercraft/v1c9101`, jetski `/s-boats-jet-skis/v1c9102`); page N = path+`p{N}`. **Freshness v2:** `parse_posted_at(html)` reads `availabilityStarts` ISO from detail-page JSON (fallback: "N ago" creation-date text) → `Listing.posted_at`. `enrich_posted_at()` fetches detail pages only for undated listings (skips keys already in `repo.dated_keys()`), capped by `SourceCfg.max_detail_fetches`. |
-| `vehicles.py` | `KNOWN_MAKES` dict + `split_make_model(slug)` — handles multi-word makes (Land Rover, Harley-Davidson, Mercedes-Benz) for clean scoring cohorts. |
+| `vehicles.py` | Known-makes lookup + `split_make_model(slug)` — handles multi-word makes (Land Rover, Harley-Davidson, Mercedes-Benz) for clean scoring cohorts. **`canonical_make(make)`** = single source of truth for brand aliasing (VW↔Volkswagen, Mercedes/Merc↔Mercedes-Benz, Harley↔Harley-Davidson, GWM↔Great Wall, Chev↔Chevrolet); applied at parse time so stored makes are canonical, and defensively in the scorer + fingerprint so the existing corpus collapses without a re-scrape. |
 | `validity.py` | `evaluate_validity(listing, settings)` — flags: missing_price, price_implausible, missing_identity, missing_location (FATAL) + missing_images (warning). **Freshness: stale FATAL flag** — listing rejected if `posted_at` is older than `validity.max_listing_age_days` (default 120). Listings without a `posted_at` pass through (dated on next enrichment run). |
-| `dedup`/`fingerprint.py` | `compute_fingerprint(listing)` = sha1 of (category, make, model, variant, year, mileage-band, province) — **excludes price** so same car at different prices clusters. |
+| `dedup`/`fingerprint.py` | `compute_fingerprint(listing)` = sha1 of (category, **canonical_make**, model, variant, year, mileage-band, province) — **excludes price** so same car at different prices clusters; canonical make so "VW Golf" and "Volkswagen Golf" cluster together. |
 | `phone.py` | `extract_phone`/`normalize_phone` — SA numbers → `0XXXXXXXXX`. |
-| `scoring.py` | `cohort_key` (category, make, model, year), `build_market_reference(listings)` (median + count per cohort), `score_listing(listing, ref)` → estimated_market_price, deal_delta_zar, deal_delta_pct, deal_score (0-100; 50=at market, 100=≥20% under), deal_confidence (low/med/high by cohort count). Cohort needs ≥2 to score. |
+| `scoring.py` | `cohort_key` (category, **canonical_make**, model, year), `build_market_reference(listings)` (median + count per cohort), `score_listing(listing, ref)` → estimated_market_price, deal_delta_zar, deal_delta_pct, deal_score (0-100; 50=at market, 100=≥20% under), deal_confidence (low/med/high by cohort count). Cohort needs ≥2 to score. |
 | `db.py` | `listing_to_row` (omits first_seen_at, sets last_seen_at), `_dedup_listings`, `ListingRepository` Protocol, `InMemoryRepository` (tests), `SupabaseRepository` (live). Methods: upsert_listings, record_run, record_price_if_changed, `search_listings` (filters + `min_score` + `min_year` + `sort` incl. "deal"), alerted_keys, record_alerts, `dated_keys()` (returns set of source_listing_ids that already have a `posted_at` — used to skip re-fetching detail pages). |
 | `pipeline.py` | `run_pipeline(...)` (scrape→**enrich_posted_at**→validate→fingerprint→phone→price→upsert, per-source isolation) + `run_scoring(repo)`. |
 | `alerts.py` | `select_new_deals(listings, alerted_keys, min_score)` + `run_alerts(repo, sender, settings)` + `format_digest`. |
@@ -92,7 +92,7 @@ Gumtree (cars/bikes/boats/jetskis)
 - ~240 listings in Supabase; **84 dated** (have a `posted_at`), **10 flagged stale and excluded** (older than 120 days), **205 valid**. Dated coverage grows ~60 listings/run until the full corpus is enriched.
 - Scoring proven **in-memory** on live data (found e.g. a Harley + a boat under market) but **not persisted** (003 pending). Only ~3 cohorts had ≥2 comparables → density is the limiter.
 - Local UI runs at `http://127.0.0.1:8000` (via `dealfinder serve`, background process; restart after code changes). Min-year filter now available.
-- 170 tests passing. All code pushed to GitHub through commit `34e5da4`.
+- 182 tests passing. All code pushed to GitHub.
 
 ---
 
@@ -117,7 +117,7 @@ Gumtree (cars/bikes/boats/jetskis)
 
 ---
 
-## 10. Test suite (170)
+## 10. Test suite (182)
 Per-module: config, models, fetch (respx), webuycars (fixture), gumtree (fixture + resilience + dedup + **freshness v2**: `parse_posted_at`, `enrich_posted_at`, detail-page fixture), validity (**stale FATAL flag**), dedup/fingerprint, phone, db (mapping + repos + price + search + alerts + **dated_keys** + **min_year search**), pipeline (incl. scoring runner + enrich wiring), scoring, vehicles, web (TestClient + **min_year field**), cli, alerts, email, smoke. Golden-file HTML fixtures for adapters (no live calls in tests).
 
 ---
@@ -126,7 +126,7 @@ Per-module: config, models, fetch (respx), webuycars (fixture), gumtree (fixture
 - **STALE LISTINGS — RESOLVED (freshness v2, 2026-06-11):** `parse_posted_at()` extracts `availabilityStarts` ISO from each listing's detail page (fallback: "N ago" creation-date text); `enrich_posted_at()` fetches detail pages for undated listings (capped at 60/run, skips already-dated keys). The validity "stale" FATAL flag now rejects listings older than `max_listing_age_days` (default 120 days). Live: 10 stale listings caught and excluded on first run. _Caveat:_ very fresh scrapes may briefly contain undated listings until the next run dates them (coverage grows ~60/run until the corpus is fully enriched).
 - **Scoring density:** few cohorts have ≥2 comparables at ~126 listings → few scored. Fixed over time by scheduled scraping (corpus grows) + more sources.
 - **Make/model heuristic:** slug-based; good for cars/bikes with known makes, weak for boats/jetskis (slugs lack real brands) → poor boat cohorts. `vehicles.py` dictionary helps; extend it.
-- **VW vs Volkswagen** create separate cohorts — add a make-normalisation/alias map above the scorer.
+- ~~**VW vs Volkswagen** create separate cohorts~~ — **RESOLVED (2026-06-11):** `canonical_make()` in `vehicles.py` is the single alias map (VW↔Volkswagen, Mercedes/Merc↔Mercedes-Benz, Harley↔Harley-Davidson, GWM↔Great Wall, Chev↔Chevrolet); applied at parse time + defensively in the scorer/fingerprint. Extend the `_MAKE_ALIASES` dict to add more.
 - **mileage / GPS / seller-type** not captured by Gumtree adapter → "condition signals" scoring deferred; cohorts ignore mileage.
 - **WeBuyCars** only via official dealer API (PoW blocks scraping).
 - **email.py** module name is unconventional (works under absolute imports) — could rename to `mailer.py` later.
@@ -135,7 +135,7 @@ Per-module: config, models, fetch (respx), webuycars (fixture), gumtree (fixture
 ---
 
 ## 12. Git / commit highlights
-master @ `34e5da4`. Notable: Plan 1 skeleton (99c1809..5011679), Plan 2 dedup, Gumtree adapter (1ddc2d3) + dedup fix (eabd5e9) + resilience (433f10a), Plan 5 UI (e4750ec) + blank-filter fix (1be94cd), Plan 3 scoring (1924e01, 9274d6b), make/model dict (8b5fceb), Plan 4 alerts (995e535, 64b7dfa), Plan 7 deploy (66de015), **freshness v2** (0b15fe9), **min-year filter** (34e5da4).
+master @ `34e5da4`. Notable: Plan 1 skeleton (99c1809..5011679), Plan 2 dedup, Gumtree adapter (1ddc2d3) + dedup fix (eabd5e9) + resilience (433f10a), Plan 5 UI (e4750ec) + blank-filter fix (1be94cd), Plan 3 scoring (1924e01, 9274d6b), make/model dict (8b5fceb), Plan 4 alerts (995e535, 64b7dfa), Plan 7 deploy (66de015), **freshness v2** (0b15fe9), **min-year filter** (34e5da4), **make-alias normalisation** (canonical_make → tighter cohorts).
 
 ---
 

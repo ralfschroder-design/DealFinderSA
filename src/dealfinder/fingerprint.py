@@ -4,6 +4,7 @@ import hashlib
 import re
 
 from dealfinder.models import Listing
+from dealfinder.vehicles import canonical_make
 
 
 def _norm(s: str | None) -> str:
@@ -23,7 +24,7 @@ def compute_fingerprint(listing: Listing) -> str:
     car listed at different prices clusters together."""
     parts = [
         listing.category.value,
-        _norm(listing.make),
+        _norm(canonical_make(listing.make)),
         _norm(listing.model),
         _alnum(listing.variant),
         str(listing.year or ""),
