@@ -10,7 +10,7 @@
 - Project root: `C:\Users\rschrode\Projects\DealFinderSA` (Windows). Python venv at `.venv`. Run python as `.\.venv\Scripts\python.exe`.
 - Private GitHub repo: `https://github.com/ralfschroder-design/DealFinderSA` (branch `master`). `.env` is git-ignored (holds Supabase + SMTP secrets) — NEVER commit it.
 - DB: Supabase (cloud Postgres). Creds in `.env` (`SUPABASE_URL`, `SUPABASE_KEY` = service_role).
-- Run tests: `.\.venv\Scripts\python.exe -m pytest -q` (currently **205 passing**).
+- Run tests: `.\.venv\Scripts\python.exe -m pytest -q` (currently **211 passing**).
 - CLI: `python -m dealfinder.cli {init-db|run-scrape|score|alert|serve}`.
 - Network ops (scrape/push/serve) need the shell sandbox disabled.
 
@@ -64,7 +64,7 @@ Gumtree (cars/bikes/boats/jetskis)
 | `dedup`/`fingerprint.py` | `compute_fingerprint(listing)` = sha1 of (category, **canonical_make**, model, variant, year, mileage-band, province) — **excludes price** so same car at different prices clusters; canonical make so "VW Golf" and "Volkswagen Golf" cluster together. |
 | `phone.py` | `extract_phone`/`normalize_phone` — SA numbers → `0XXXXXXXXX`. |
 | `geo.py` | `haversine_km(lat1,lng1,lat2,lng2)` (great-circle km) + `is_within_radius(lat,lng,home_lat,home_lng,radius_km)` (keep-unknown-location policy). Powers the distance-from-Hartbeespoort filter; a North-Star building block for cross-area comparison. |
-| `scoring.py` | `cohort_key` (category, **canonical_make**, model, year), `build_market_reference(listings)` (median + count per cohort), `score_listing(listing, ref)` → estimated_market_price, deal_delta_zar, deal_delta_pct, deal_score (0-100; 50=at market, 100=≥20% under), deal_confidence (low/med/high by cohort count). Cohort needs ≥2 to score. |
+| `scoring.py` | `cohort_key` (category, **canonical_make**, model, year), `build_market_reference(listings)` (median + count per cohort), `score_listing(listing, ref)` → estimated_market_price, deal_delta_zar, deal_delta_pct, deal_score (0-100; 50=at market, 100=≥20% under), deal_confidence (low/med/high by cohort count). Cohort needs ≥2 to score. **Plan 10:** `build_market_reference` also tracks per-cohort `mileage_median`; `score_listing` folds a bounded **±20** mileage adjustment into `deal_score` when the cohort has ≥2 mileaged peers (lower km → higher score); `deal_delta_*` stay pure price. |
 | `db.py` | `listing_to_row` (omits first_seen_at, sets last_seen_at), `_dedup_listings`, `ListingRepository` Protocol, `InMemoryRepository` (tests), `SupabaseRepository` (live). Methods: upsert_listings, record_run, record_price_if_changed, `search_listings` (filters + `min_score` + `min_year` + `sort` incl. "deal"), `within_km`/`home_lat`/`home_lng` (distance-from-home radius filter, keep-unknown policy), alerted_keys, record_alerts, `dated_keys()` (returns set of source_listing_ids that already have a `posted_at` — used to skip re-fetching detail pages). |
 | `pipeline.py` | `run_pipeline(...)` (scrape→**enrich_posted_at**→validate→fingerprint→phone→price→upsert, per-source isolation) + `run_scoring(repo)`. |
 | `alerts.py` | `select_new_deals(listings, alerted_keys, min_score)` + `run_alerts(repo, sender, settings)` + `format_digest`. |
@@ -93,7 +93,7 @@ Gumtree (cars/bikes/boats/jetskis)
 - **Live (verified 2026-06-11 after a scrape): 296 listings, 253 valid.** Plan 8 enrichment coverage so far: **37 with geo lat/lng, 37 province, 28 mileage, 33 seller-type known** (grows each run up to `max_detail_fetches`). **5** geolocated listings fall within the 100 km home radius.
 - **Scoring is live & persisted (003 applied):** 15 listings carry a `deal_score` — e.g. a 2015 Land Rover Discovery R319,995 vs ~R335k est. Cohort density is still the limiter (grows with corpus + make-alias merging); boat/bike cohorts remain noisy (slug brands).
 - Local UI runs at `http://127.0.0.1:8000` (via `dealfinder serve`, background process; restart after code changes). Min-year filter now available.
-- 205 tests passing. All code pushed to GitHub.
+- 211 tests passing. All code pushed to GitHub.
 
 ---
 
@@ -118,7 +118,7 @@ Gumtree (cars/bikes/boats/jetskis)
 
 ---
 
-## 10. Test suite (205)
+## 10. Test suite (211)
 Per-module: config, models, fetch (respx), webuycars (fixture), gumtree (fixture + resilience + dedup + **freshness v2**: `parse_posted_at`, `enrich_posted_at`, detail-page fixture), validity (**stale FATAL flag**), dedup/fingerprint, phone, db (mapping + repos + price + search + alerts + **dated_keys** + **min_year search**), pipeline (incl. scoring runner + enrich wiring), scoring, vehicles, web (TestClient + **min_year field**), cli, alerts, email, smoke. Golden-file HTML fixtures for adapters (no live calls in tests).
 
 ---
@@ -128,7 +128,7 @@ Per-module: config, models, fetch (respx), webuycars (fixture), gumtree (fixture
 - **Scoring density:** few cohorts have ≥2 comparables at ~126 listings → few scored. Fixed over time by scheduled scraping (corpus grows) + more sources.
 - **Make/model heuristic:** slug-based; good for cars/bikes with known makes, weak for boats/jetskis (slugs lack real brands) → poor boat cohorts. `vehicles.py` dictionary helps; extend it.
 - ~~**VW vs Volkswagen** create separate cohorts~~ — **RESOLVED (2026-06-11):** `canonical_make()` in `vehicles.py` is the single alias map (VW↔Volkswagen, Mercedes/Merc↔Mercedes-Benz, Harley↔Harley-Davidson, GWM↔Great Wall, Chev↔Chevrolet); applied at parse time + defensively in the scorer/fingerprint. Extend the `_MAKE_ALIASES` dict to add more.
-- ~~**mileage / GPS / seller-type** not captured~~ — **RESOLVED (Plan 8, 2026-06-11):** `parse_detail()` now extracts mileage, geo lat/lng, province, seller type (+ transmission/fuel/body/colour/drive into `raw`) from detail pages. Still deferred: *using* these in scoring (condition signals, mileage-aware cohorts) and the distance-from-Hartbeespoort filter (geo now available) — both need follow-up work; transmission/fuel as cohort dimensions need a migration. Note: only newly-fetched detail pages are enriched, so coverage grows ~`max_detail_fetches`/run (legacy listings back-fill as re-scraped).
+- ~~**mileage / GPS / seller-type** not captured~~ — **RESOLVED (Plan 8, 2026-06-11):** `parse_detail()` now extracts mileage, geo lat/lng, province, seller type (+ transmission/fuel/body/colour/drive into `raw`) from detail pages. Done since: distance-from-Hartbeespoort filter (Plan 9) and **mileage-aware deal scoring (Plan 10)**. Still deferred: transmission/fuel as cohort dimensions (needs a migration), and a margin estimate (needs cost assumptions from Ralf — transport R/km, recon, fees). Note: only newly-fetched detail pages are enriched, so coverage grows ~`max_detail_fetches`/run (legacy listings back-fill as re-scraped).
 - **WeBuyCars** only via official dealer API (PoW blocks scraping).
 - **email.py** module name is unconventional (works under absolute imports) — could rename to `mailer.py` later.
 - Local UI server must be manually restarted after code changes (no auto-reload).
@@ -136,7 +136,7 @@ Per-module: config, models, fetch (respx), webuycars (fixture), gumtree (fixture
 ---
 
 ## 12. Git / commit highlights
-master @ `34e5da4`. Notable: Plan 1 skeleton (99c1809..5011679), Plan 2 dedup, Gumtree adapter (1ddc2d3) + dedup fix (eabd5e9) + resilience (433f10a), Plan 5 UI (e4750ec) + blank-filter fix (1be94cd), Plan 3 scoring (1924e01, 9274d6b), make/model dict (8b5fceb), Plan 4 alerts (995e535, 64b7dfa), Plan 7 deploy (66de015), **freshness v2** (0b15fe9), **min-year filter** (34e5da4), **make-alias normalisation** (canonical_make → tighter cohorts), **detail-field extraction** (Plan 8: mileage/geo/province/seller/etc. from detail pages), **distance filter** (Plan 9: geo.py haversine + `within_km` search/UI).
+master @ `34e5da4`. Notable: Plan 1 skeleton (99c1809..5011679), Plan 2 dedup, Gumtree adapter (1ddc2d3) + dedup fix (eabd5e9) + resilience (433f10a), Plan 5 UI (e4750ec) + blank-filter fix (1be94cd), Plan 3 scoring (1924e01, 9274d6b), make/model dict (8b5fceb), Plan 4 alerts (995e535, 64b7dfa), Plan 7 deploy (66de015), **freshness v2** (0b15fe9), **min-year filter** (34e5da4), **make-alias normalisation** (canonical_make → tighter cohorts), **detail-field extraction** (Plan 8: mileage/geo/province/seller/etc. from detail pages), **distance filter** (Plan 9: geo.py haversine + `within_km` search/UI), **mileage-aware scoring** (Plan 10: condition adjustment in deal_score).
 
 ---
 
@@ -152,7 +152,7 @@ master @ `34e5da4`. Notable: Plan 1 skeleton (99c1809..5011679), Plan 2 dedup, G
 **Toward the North Star (agentic):**
 4. **More sources / more areas** — additional adapters; parameterise scrapes by SA region/area (suburb/town/province) so "workers" canvass different areas.
 5. **Demand mapping & analytics** — which makes/models sell fast / command premiums by area; price-trend + days-on-market signals (needs posted_at, now being captured); cross-area arbitrage (buy cheap area X → sell hot area Y).
-6. **Condition-signal scoring** — capture mileage/year/seller; refine deal score + margin estimate (transport from Hartbeespoort, recon, fees).
+6. **Condition-signal scoring** — ~~capture mileage/year/seller~~ (Plan 8) + ~~mileage in deal score~~ (Plan 10) done. Remaining: **margin estimate** (resale − price − transport (geo gives distance) − recon − fees) — needs cost assumptions from Ralf; transmission/fuel as cohort dimensions (migration).
 7. **Agent/worker orchestration** — a coordinator (the "master") dispatching area-scoped scrape workers + analysis agents; pluggable LLMs (Gemini master, Claude/OpenAI workers) for parsing messy listings, judging deals, summarising. Keep deterministic core (scrape/validate/score) + LLM for judgment/summarisation. Strategy modes: quality-vs-quantity toggle.
 8. Scam-risk scoring; image perceptual-hash dedup; saved-search "watches"; WhatsApp (if a compliant provider) — all previously deferred.
 
