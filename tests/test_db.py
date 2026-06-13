@@ -34,6 +34,38 @@ def test_inmemory_repo_records_run():
     assert repo.runs[-1].fetched == 2
 
 
+def _geo_listing(lid: str, lat, lng) -> Listing:
+    return Listing(
+        source_key="gumtree", source_listing_id=lid, url=f"https://g/a/{lid}",
+        category=Category.CAR, title="car", make="Toyota", model="Hilux",
+        price_zar=200000, town="x", lat=lat, lng=lng, is_valid=True,
+    )
+
+
+def test_search_within_km_filters_far_listings_keeps_unknown():
+    repo = InMemoryRepository()
+    repo.upsert_listings([
+        _geo_listing("near", -26.2041, 28.0473),   # Joburg ~52 km from Harties
+        _geo_listing("far", -33.9249, 18.4241),    # Cape Town ~1265 km
+        _geo_listing("nocoord", None, None),        # unknown location
+    ])
+    res = repo.search_listings(
+        within_km=100, home_lat=-25.7457, home_lng=27.8540, valid_only=False,
+    )
+    ids = {l.source_listing_id for l in res}
+    assert "near" in ids
+    assert "far" not in ids
+    assert "nocoord" in ids  # unknown location kept (documented)
+
+
+def test_search_within_km_noop_without_home_coords():
+    repo = InMemoryRepository()
+    repo.upsert_listings([_geo_listing("far", -33.9249, 18.4241)])
+    # within_km set but no home coords -> filter is a no-op (returns all)
+    res = repo.search_listings(within_km=100, valid_only=False)
+    assert len(res) == 1
+
+
 def test_record_price_if_changed(sample_listing):
     from dealfinder.db import InMemoryRepository
 

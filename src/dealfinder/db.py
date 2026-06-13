@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Protocol
 
+from dealfinder.geo import is_within_radius
 from dealfinder.models import Category, Listing, RunStats
 
 
@@ -40,6 +41,9 @@ class ListingRepository(Protocol):
         limit: int = 200,
         min_score: int | None = None,
         min_year: int | None = None,
+        within_km: float | None = None,
+        home_lat: float | None = None,
+        home_lng: float | None = None,
     ) -> list[Listing]: ...
     def alerted_keys(self) -> set[tuple[str, str]]: ...
     def record_alerts(self, listings: list[Listing]) -> int: ...
@@ -102,9 +106,13 @@ class InMemoryRepository:
         limit: int = 200,
         min_score: int | None = None,
         min_year: int | None = None,
+        within_km: float | None = None,
+        home_lat: float | None = None,
+        home_lng: float | None = None,
     ) -> list[Listing]:
         results: list[Listing] = []
         price_bound_active = min_price is not None or max_price is not None
+        radius_active = within_km is not None and home_lat is not None and home_lng is not None
 
         for listing in self._store.values():
             if valid_only and not listing.is_valid:
@@ -138,6 +146,10 @@ class InMemoryRepository:
                 continue
             if min_year is not None and (
                 listing.year is None or listing.year < min_year
+            ):
+                continue
+            if radius_active and not is_within_radius(
+                listing.lat, listing.lng, home_lat, home_lng, within_km
             ):
                 continue
             results.append(listing)
@@ -245,6 +257,9 @@ class SupabaseRepository:
         limit: int = 200,
         min_score: int | None = None,
         min_year: int | None = None,
+        within_km: float | None = None,
+        home_lat: float | None = None,
+        home_lng: float | None = None,
     ) -> list[Listing]:
         query = self._client.table("listings").select("*")
         if category is not None:
@@ -275,7 +290,13 @@ class SupabaseRepository:
             query = query.order("last_seen_at", desc=True)
         query = query.limit(limit)
         resp = query.execute()
-        return [Listing(**row) for row in resp.data]
+        rows = [Listing(**row) for row in resp.data]
+        if within_km is not None and home_lat is not None and home_lng is not None:
+            rows = [
+                listing for listing in rows
+                if is_within_radius(listing.lat, listing.lng, home_lat, home_lng, within_km)
+            ]
+        return rows
 
     def alerted_keys(self) -> set[tuple[str, str]]:
         resp = (

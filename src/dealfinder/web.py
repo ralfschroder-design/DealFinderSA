@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 
+from dealfinder.config import load_settings
 from dealfinder.db import ListingRepository
 from dealfinder.models import Category, Listing
 
@@ -153,6 +154,7 @@ def render_page(listings: list[Listing], filters: dict[str, Any]) -> str:
     f_sort = filters.get("sort") or "recent"
     f_min_score = filters.get("min_score") or ""
     f_min_year = filters.get("min_year") or ""
+    f_within_km = filters.get("within_km") or ""
 
     f_valid_only_str = "1" if f_valid_only else "0"
 
@@ -222,6 +224,10 @@ def render_page(listings: list[Listing], filters: dict[str, Any]) -> str:
           <input type="number" name="min_year" id="f-min-year" value="{f_min_year}" min="1900" max="2100" placeholder="any">
         </div>
         <div class="form-group">
+          <label for="f-within-km">Within km of Hartbeespoort</label>
+          <input type="number" name="within_km" id="f-within-km" value="{f_within_km}" min="0" placeholder="any (located only)">
+        </div>
+        <div class="form-group">
           <label for="f-valid">Listing status</label>
           {valid_only_select}
         </div>
@@ -240,7 +246,20 @@ def render_page(listings: list[Listing], filters: dict[str, Any]) -> str:
 # App factory
 # ---------------------------------------------------------------------------
 
-def create_app(repo: ListingRepository) -> FastAPI:
+def create_app(
+    repo: ListingRepository,
+    *,
+    home_lat: float | None = None,
+    home_lng: float | None = None,
+) -> FastAPI:
+    # Resolve the home point for the distance filter (config default: Hartbeespoort).
+    if home_lat is None or home_lng is None:
+        try:
+            _settings = load_settings()
+            home_lat, home_lng = _settings.home.lat, _settings.home.lng
+        except Exception:  # noqa: BLE001 — UI must still serve without config
+            home_lat, home_lng = None, None
+
     app = FastAPI(title="DealFinderSA")
 
     @app.get("/healthz")
@@ -260,6 +279,7 @@ def create_app(repo: ListingRepository) -> FastAPI:
         sort: str = "recent",
         min_score: str | None = None,
         min_year: str | None = None,
+        within_km: str | None = None,
     ):
         # Normalise text fields — blank string → None
         make = _clean(make)
@@ -271,6 +291,7 @@ def create_app(repo: ListingRepository) -> FastAPI:
         max_price_int = _int_or_none(max_price)
         min_score_int = _int_or_none(min_score)
         min_year_int = _int_or_none(min_year)
+        within_km_int = _int_or_none(within_km)
 
         # valid_only: False only for explicit opt-out values; default (absent) → True
         _falsy = {"0", "false", "no", "off"}
@@ -296,6 +317,9 @@ def create_app(repo: ListingRepository) -> FastAPI:
             limit=200,
             min_score=min_score_int,
             min_year=min_year_int,
+            within_km=within_km_int,
+            home_lat=home_lat,
+            home_lng=home_lng,
         )
 
         filters = {
@@ -309,6 +333,7 @@ def create_app(repo: ListingRepository) -> FastAPI:
             "sort": sort,
             "min_score": min_score_int,
             "min_year": min_year_int,
+            "within_km": within_km_int,
         }
 
         return HTMLResponse(content=render_page(listings, filters))

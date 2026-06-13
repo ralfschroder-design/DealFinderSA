@@ -10,7 +10,7 @@
 - Project root: `C:\Users\rschrode\Projects\DealFinderSA` (Windows). Python venv at `.venv`. Run python as `.\.venv\Scripts\python.exe`.
 - Private GitHub repo: `https://github.com/ralfschroder-design/DealFinderSA` (branch `master`). `.env` is git-ignored (holds Supabase + SMTP secrets) — NEVER commit it.
 - DB: Supabase (cloud Postgres). Creds in `.env` (`SUPABASE_URL`, `SUPABASE_KEY` = service_role).
-- Run tests: `.\.venv\Scripts\python.exe -m pytest -q` (currently **193 passing**).
+- Run tests: `.\.venv\Scripts\python.exe -m pytest -q` (currently **205 passing**).
 - CLI: `python -m dealfinder.cli {init-db|run-scrape|score|alert|serve}`.
 - Network ops (scrape/push/serve) need the shell sandbox disabled.
 
@@ -63,8 +63,9 @@ Gumtree (cars/bikes/boats/jetskis)
 | `validity.py` | `evaluate_validity(listing, settings)` — flags: missing_price, price_implausible, missing_identity, missing_location (FATAL) + missing_images (warning). **Freshness: stale FATAL flag** — listing rejected if `posted_at` is older than `validity.max_listing_age_days` (default 120). Listings without a `posted_at` pass through (dated on next enrichment run). |
 | `dedup`/`fingerprint.py` | `compute_fingerprint(listing)` = sha1 of (category, **canonical_make**, model, variant, year, mileage-band, province) — **excludes price** so same car at different prices clusters; canonical make so "VW Golf" and "Volkswagen Golf" cluster together. |
 | `phone.py` | `extract_phone`/`normalize_phone` — SA numbers → `0XXXXXXXXX`. |
+| `geo.py` | `haversine_km(lat1,lng1,lat2,lng2)` (great-circle km) + `is_within_radius(lat,lng,home_lat,home_lng,radius_km)` (keep-unknown-location policy). Powers the distance-from-Hartbeespoort filter; a North-Star building block for cross-area comparison. |
 | `scoring.py` | `cohort_key` (category, **canonical_make**, model, year), `build_market_reference(listings)` (median + count per cohort), `score_listing(listing, ref)` → estimated_market_price, deal_delta_zar, deal_delta_pct, deal_score (0-100; 50=at market, 100=≥20% under), deal_confidence (low/med/high by cohort count). Cohort needs ≥2 to score. |
-| `db.py` | `listing_to_row` (omits first_seen_at, sets last_seen_at), `_dedup_listings`, `ListingRepository` Protocol, `InMemoryRepository` (tests), `SupabaseRepository` (live). Methods: upsert_listings, record_run, record_price_if_changed, `search_listings` (filters + `min_score` + `min_year` + `sort` incl. "deal"), alerted_keys, record_alerts, `dated_keys()` (returns set of source_listing_ids that already have a `posted_at` — used to skip re-fetching detail pages). |
+| `db.py` | `listing_to_row` (omits first_seen_at, sets last_seen_at), `_dedup_listings`, `ListingRepository` Protocol, `InMemoryRepository` (tests), `SupabaseRepository` (live). Methods: upsert_listings, record_run, record_price_if_changed, `search_listings` (filters + `min_score` + `min_year` + `sort` incl. "deal"), `within_km`/`home_lat`/`home_lng` (distance-from-home radius filter, keep-unknown policy), alerted_keys, record_alerts, `dated_keys()` (returns set of source_listing_ids that already have a `posted_at` — used to skip re-fetching detail pages). |
 | `pipeline.py` | `run_pipeline(...)` (scrape→**enrich_posted_at**→validate→fingerprint→phone→price→upsert, per-source isolation) + `run_scoring(repo)`. |
 | `alerts.py` | `select_new_deals(listings, alerted_keys, min_score)` + `run_alerts(repo, sender, settings)` + `format_digest`. |
 | `email.py` | `EmailSender` — SMTP via smtplib, injectable factory, `is_configured`, `send(subject, body)`. (Module name `email.py` does NOT shadow stdlib under absolute imports — verified.) |
@@ -92,7 +93,7 @@ Gumtree (cars/bikes/boats/jetskis)
 - ~240 listings in Supabase; **84 dated** (have a `posted_at`), **10 flagged stale and excluded** (older than 120 days), **205 valid**. Dated coverage grows ~60 listings/run until the full corpus is enriched.
 - Scoring proven **in-memory** on live data (found e.g. a Harley + a boat under market) but **not persisted** (003 pending). Only ~3 cohorts had ≥2 comparables → density is the limiter.
 - Local UI runs at `http://127.0.0.1:8000` (via `dealfinder serve`, background process; restart after code changes). Min-year filter now available.
-- 193 tests passing. All code pushed to GitHub.
+- 205 tests passing. All code pushed to GitHub.
 
 ---
 
@@ -117,7 +118,7 @@ Gumtree (cars/bikes/boats/jetskis)
 
 ---
 
-## 10. Test suite (193)
+## 10. Test suite (205)
 Per-module: config, models, fetch (respx), webuycars (fixture), gumtree (fixture + resilience + dedup + **freshness v2**: `parse_posted_at`, `enrich_posted_at`, detail-page fixture), validity (**stale FATAL flag**), dedup/fingerprint, phone, db (mapping + repos + price + search + alerts + **dated_keys** + **min_year search**), pipeline (incl. scoring runner + enrich wiring), scoring, vehicles, web (TestClient + **min_year field**), cli, alerts, email, smoke. Golden-file HTML fixtures for adapters (no live calls in tests).
 
 ---
@@ -135,7 +136,7 @@ Per-module: config, models, fetch (respx), webuycars (fixture), gumtree (fixture
 ---
 
 ## 12. Git / commit highlights
-master @ `34e5da4`. Notable: Plan 1 skeleton (99c1809..5011679), Plan 2 dedup, Gumtree adapter (1ddc2d3) + dedup fix (eabd5e9) + resilience (433f10a), Plan 5 UI (e4750ec) + blank-filter fix (1be94cd), Plan 3 scoring (1924e01, 9274d6b), make/model dict (8b5fceb), Plan 4 alerts (995e535, 64b7dfa), Plan 7 deploy (66de015), **freshness v2** (0b15fe9), **min-year filter** (34e5da4), **make-alias normalisation** (canonical_make → tighter cohorts), **detail-field extraction** (Plan 8: mileage/geo/province/seller/etc. from detail pages).
+master @ `34e5da4`. Notable: Plan 1 skeleton (99c1809..5011679), Plan 2 dedup, Gumtree adapter (1ddc2d3) + dedup fix (eabd5e9) + resilience (433f10a), Plan 5 UI (e4750ec) + blank-filter fix (1be94cd), Plan 3 scoring (1924e01, 9274d6b), make/model dict (8b5fceb), Plan 4 alerts (995e535, 64b7dfa), Plan 7 deploy (66de015), **freshness v2** (0b15fe9), **min-year filter** (34e5da4), **make-alias normalisation** (canonical_make → tighter cohorts), **detail-field extraction** (Plan 8: mileage/geo/province/seller/etc. from detail pages), **distance filter** (Plan 9: geo.py haversine + `within_km` search/UI).
 
 ---
 
@@ -143,8 +144,9 @@ master @ `34e5da4`. Notable: Plan 1 skeleton (99c1809..5011679), Plan 2 dedup, G
 **Immediate:**
 1. ~~**Freshness fix**~~ — **DONE (2026-06-11):** `parse_posted_at` + `enrich_posted_at` on detail pages; stale FATAL flag; 10 listings caught on first live run. Coverage grows ~60/run.
 2. ~~**Min model-year filter**~~ — **DONE (2026-06-11):** `search_listings(min_year=...)` + local UI field.
-3. ~~**Make-alias cohorts + detail-field extraction**~~ — **DONE (2026-06-11):** `canonical_make` merges split cohorts; `parse_detail` pulls mileage/geo/province/seller/etc. from detail pages (verified on a live page). **Geo now enables a distance-from-Hartbeespoort filter** — strong next candidate.
-4. Apply migrations 003/004 + SMTP → scoring/alerts live (user-gated).
+3. ~~**Make-alias cohorts + detail-field extraction**~~ — **DONE (2026-06-11):** `canonical_make` merges split cohorts; `parse_detail` pulls mileage/geo/province/seller/etc. from detail pages (verified on a live page). geo lat/lng captured.
+4. ~~**Distance-from-Hartbeespoort filter**~~ — **DONE (Plan 9):** `geo.haversine_km` + `search_listings(within_km=…, home_lat, home_lng)` across all repos + a "Within km" UI field; keep-unknown-location policy. **Lovable will need an SQL/RPC equivalent** for server-side radius (this Python filter is the reference impl).
+5. Apply migrations 003/004 + SMTP → scoring/alerts live (user-gated).
 5. **Lovable production frontend** (real UI) — Lovable app reading Supabase; needs read-only anon key + RLS policies (never the service_role key in-browser). I can supply Lovable prompts + the RLS SQL.
 
 **Toward the North Star (agentic):**

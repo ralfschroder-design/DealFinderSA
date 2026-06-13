@@ -254,6 +254,39 @@ def test_min_year_prefilled_in_form() -> None:
     assert 'value="2018"' in resp.text
 
 
+def test_within_km_param_returns_200(client: TestClient) -> None:
+    resp = client.get("/?within_km=50")
+    assert resp.status_code == 200
+
+
+def test_within_km_filter_excludes_far_listing() -> None:
+    """/?within_km=100 keeps a Joburg listing (~52 km from home) and hides a Cape Town one."""
+    r = InMemoryRepository()
+    r.upsert_listings([
+        Listing(
+            source_key="test", source_listing_id="near-1", url="https://example.com/near",
+            category=Category.CAR, title="Bakkie A", make="Toyota", year=2019,
+            price_zar=300000, town="Centurion", lat=-26.2041, lng=28.0473, is_valid=True,
+        ),
+        Listing(
+            source_key="test", source_listing_id="far-1", url="https://example.com/far",
+            category=Category.CAR, title="Bakkie B", make="Toyota", year=2019,
+            price_zar=300000, town="Cape Town", lat=-33.9249, lng=18.4241, is_valid=True,
+        ),
+    ])
+    c = TestClient(create_app(r))
+    resp = c.get("/?within_km=100")
+    assert resp.status_code == 200
+    assert "Centurion" in resp.text       # near listing kept
+    assert "Cape Town" not in resp.text   # far listing excluded
+
+
+def test_within_km_prefilled_in_form(client: TestClient) -> None:
+    resp = client.get("/?within_km=75")
+    assert resp.status_code == 200
+    assert 'value="75"' in resp.text
+
+
 def test_xss_escaping() -> None:
     """Titles with HTML special chars must be escaped, not rendered raw."""
     r = InMemoryRepository()
