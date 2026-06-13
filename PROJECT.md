@@ -41,6 +41,7 @@ Three principles locked 2026-06-08:
 | 2026-06-10 | **Plan 7 — scheduling + run-from-git deploy docs.** Created `docs/deploy.md` (one-time setup, scheduled command, Linux/cron production path, Windows Task Scheduler local-testing path, politeness guidance). Created `scripts/run_scrape.sh` (cron wrapper, no activate needed). Created `scripts/register_scheduled_task.ps1` (idempotent Windows Task Scheduler registration, SupportsShouldProcess, -WhatIf safe). No core code changes; 137 tests still passing. |
 | 2026-06-11 | **Freshness v2 (detail-page dating) — DONE.** `parse_posted_at()` reads `availabilityStarts` ISO from Gumtree detail pages (fallback: "N ago" creation-date text) → `Listing.posted_at`. `enrich_posted_at()` fetches detail pages for undated listings (capped at `max_detail_fetches`=60/run, skipping already-dated keys via `dated_keys()`), wired into `run_pipeline` before validity. Stale FATAL flag now active (`max_listing_age_days`=120). Live: 240 listings, 84 dated, 10 stale excluded, 205 valid. **Min model-year filter — DONE.** `search_listings(min_year=...)` in Protocol + InMemory + Supabase repos; "Min year" field in local web UI. 170 tests passing. Commits: `0b15fe9` (freshness v2), `34e5da4` (min-year). |
 | 2026-06-11 | **Cohort quality — make-alias normalisation.** Added `canonical_make()` in `src/dealfinder/vehicles.py` as the single source of truth for brand aliasing (VW↔Volkswagen, Mercedes/Merc↔Mercedes-Benz, Harley↔Harley-Davidson, GWM↔Great Wall, Chev↔Chevrolet). Applied at parse time (`split_make_model` now emits canonical makes) **and** defensively in `scoring.cohort_key` + `compute_fingerprint`, so split cohorts in the **existing** corpus collapse without a re-scrape. Directly attacks the scoring-density limiter — more listings reach the ≥2-comparable threshold. TDD; **182 tests passing** (+12). |
+| 2026-06-11 | **Plan 8 — detail-page field extraction.** New `parse_detail()` in `src/dealfinder/adapters/gumtree.py` reads each listing's detail page (already fetched for dating) and extracts the full record from the JSON-LD (`Vehicle`/`Place`/`BreadcrumbList`) + the HTML attributes table: real make/model/year, **mileage_km**, **province + geo lat/lng**, **seller type**, description (+ transmission/fuel/body/colour/drive into `raw`). `enrich_posted_at` broadened to apply all of these. **No migration** (all fields already on the model/table). Verified on a live page (Audi RS5 → mileage 117 000, geo, Gauteng, Dealer). Unlocks the 100 km-from-Hartbeespoort radius and future condition-signal scoring. TDD; **193 tests passing** (+11). Plan: `docs/plans/2026-06-11-plan-8-detail-field-extraction.md`. |
 
 ## Key Files & Paths
 | Path / URL | Purpose |
@@ -52,7 +53,8 @@ Three principles locked 2026-06-08:
 | `README.md` | Setup, usage, and go-live checklist |
 | `docs/plans/2026-06-04-plan-2-dedup-clustering.md` | Plan 2 — dedup & clustering (step-by-step build) |
 | `docs/plans/2026-06-08-plan-3-deal-scoring.md` | Plan 3 — deal scoring design and task breakdown |
-| `src/dealfinder/adapters/gumtree.py` | Gumtree adapter — primary scrape source (HTML) |
+| `src/dealfinder/adapters/gumtree.py` | Gumtree adapter — primary scrape source (HTML); `parse_detail()` extracts full detail-page record (Plan 8) |
+| `docs/plans/2026-06-11-plan-8-detail-field-extraction.md` | Plan 8 — detail-page field extraction (mileage, geo, province, seller) |
 | `src/dealfinder/scoring.py` | Deal scoring logic (price-vs-cohort-median, confidence) |
 | `src/dealfinder/vehicles.py` | Known-makes dictionary for clean make/model cohort parsing |
 | `src/dealfinder/web.py` | Local FastAPI search UI (test harness only) |
@@ -74,5 +76,7 @@ Three principles locked 2026-06-08:
 3. ~~**Plan 7 — scheduling (git-deploy)**~~ — **DONE 2026-06-10**: `docs/deploy.md`, `scripts/run_scrape.sh`, `scripts/register_scheduled_task.ps1` created. Deploy and schedule docs complete.
 4. ~~**Freshness v2 (stale listing exclusion)**~~ — **DONE 2026-06-11**: detail-page dating + stale FATAL flag; 10 listings caught live.
 5. ~~**Min model-year filter**~~ — **DONE 2026-06-11**: `search_listings(min_year=...)` + local UI field.
-6. **Lovable production frontend** — production search UI on Supabase (replaces the local FastAPI test harness). This is the next major build item once alerts are live.
+6. **Distance-from-Hartbeespoort filter** — geo `lat`/`lng` are now captured per listing (Plan 8). Add a haversine distance to the home point (−25.7457, 27.8540) + a `within_km` filter in `search_listings`/UI/validity to honour the 100 km radius from the original brief.
+7. **Make-alias + detail fields, keep mining** — promote transmission/fuel to first-class cohort dimensions (needs a migration); use mileage for condition-aware scoring.
+8. **Lovable production frontend** — production search UI on Supabase (replaces the local FastAPI test harness). This is the next major build item once alerts are live.
 7. **More sources** — AutoTrader, Cars.co.za, AutoMart; WeBuyCars via official dealer API when ready.

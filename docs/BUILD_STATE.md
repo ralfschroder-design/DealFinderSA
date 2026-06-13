@@ -10,7 +10,7 @@
 - Project root: `C:\Users\rschrode\Projects\DealFinderSA` (Windows). Python venv at `.venv`. Run python as `.\.venv\Scripts\python.exe`.
 - Private GitHub repo: `https://github.com/ralfschroder-design/DealFinderSA` (branch `master`). `.env` is git-ignored (holds Supabase + SMTP secrets) — NEVER commit it.
 - DB: Supabase (cloud Postgres). Creds in `.env` (`SUPABASE_URL`, `SUPABASE_KEY` = service_role).
-- Run tests: `.\.venv\Scripts\python.exe -m pytest -q` (currently **182 passing**).
+- Run tests: `.\.venv\Scripts\python.exe -m pytest -q` (currently **193 passing**).
 - CLI: `python -m dealfinder.cli {init-db|run-scrape|score|alert|serve}`.
 - Network ops (scrape/push/serve) need the shell sandbox disabled.
 
@@ -39,7 +39,7 @@ Gumtree (cars/bikes/boats/jetskis)
   → adapter fetch (resilient: per-page failures isolated)
   → normalise to Listing
   → compute fingerprint (price-independent vehicle key) + extract SA phone
-  → enrich_posted_at (fetch detail pages for undated listings, capped by max_detail_fetches)
+  → enrich_posted_at (fetch detail pages for undated listings, capped; Plan 8: extracts make/year/mileage/province/geo/seller/desc + date)
   → validity gate (completeness + price sanity + freshness — stale listings FATALed)
   → record price_history (on change)
   → upsert to Supabase (dedup-safe batch)
@@ -58,7 +58,7 @@ Gumtree (cars/bikes/boats/jetskis)
 | `adapters/base.py` | `Adapter` ABC: `key/name/tier` + `fetch_listings(fetcher, settings) -> list[Listing]`. `enrich_posted_at(listings, repo, fetcher, settings)` no-op default (overridden by Gumtree). |
 | `adapters/__init__.py` | `_ALL` registry + `build_enabled_adapters(settings)`. |
 | `adapters/webuycars.py` | WeBuyCars adapter (JSON API). **Disabled** — blocked by proof-of-work anti-bot (see §7). |
-| `adapters/gumtree.py` | **PRIMARY** source. HTML scrape of Gumtree category pages; per-listing data from the `/a-<cat>/<town>/<slug>/<id>` anchor + card (price `span.ad-price`, image `img[data-src]`). Global cross-category dedup; per-page failure isolation. Category→path map (cars `/s-cars-bakkies/v1c9077`, bikes `/s-motorcycles-scooters/v1c9027`, boats `/s-boats-watercraft/v1c9101`, jetski `/s-boats-jet-skis/v1c9102`); page N = path+`p{N}`. **Freshness v2:** `parse_posted_at(html)` reads `availabilityStarts` ISO from detail-page JSON (fallback: "N ago" creation-date text) → `Listing.posted_at`. `enrich_posted_at()` fetches detail pages only for undated listings (skips keys already in `repo.dated_keys()`), capped by `SourceCfg.max_detail_fetches`. |
+| `adapters/gumtree.py` | **PRIMARY** source. HTML scrape of Gumtree category pages; per-listing data from the `/a-<cat>/<town>/<slug>/<id>` anchor + card (price `span.ad-price`, image `img[data-src]`). Global cross-category dedup; per-page failure isolation. Category→path map (cars `/s-cars-bakkies/v1c9077`, bikes `/s-motorcycles-scooters/v1c9027`, boats `/s-boats-watercraft/v1c9101`, jetski `/s-boats-jet-skis/v1c9102`); page N = path+`p{N}`. **Freshness v2:** `parse_posted_at(html)` reads `availabilityStarts` ISO from detail-page JSON (fallback: "N ago" creation-date text) → `Listing.posted_at`. `enrich_posted_at()` fetches detail pages only for undated listings (skips keys already in `repo.dated_keys()`), capped by `SourceCfg.max_detail_fetches`. **Plan 8 — `parse_detail(html)`** extracts the full record from each detail page (JSON-LD `Vehicle`/`Place`/`BreadcrumbList` + the HTML `div.attributes` table): real make/model/year, **mileage**, **province + geo lat/lng**, seller type, description; transmission/fuel/body/colour/drive → `raw`. `enrich_posted_at` now applies all of these (upgrade identity, fill the rest, price only when missing), not just the date; `cap` limits fetches. |
 | `vehicles.py` | Known-makes lookup + `split_make_model(slug)` — handles multi-word makes (Land Rover, Harley-Davidson, Mercedes-Benz) for clean scoring cohorts. **`canonical_make(make)`** = single source of truth for brand aliasing (VW↔Volkswagen, Mercedes/Merc↔Mercedes-Benz, Harley↔Harley-Davidson, GWM↔Great Wall, Chev↔Chevrolet); applied at parse time so stored makes are canonical, and defensively in the scorer + fingerprint so the existing corpus collapses without a re-scrape. |
 | `validity.py` | `evaluate_validity(listing, settings)` — flags: missing_price, price_implausible, missing_identity, missing_location (FATAL) + missing_images (warning). **Freshness: stale FATAL flag** — listing rejected if `posted_at` is older than `validity.max_listing_age_days` (default 120). Listings without a `posted_at` pass through (dated on next enrichment run). |
 | `dedup`/`fingerprint.py` | `compute_fingerprint(listing)` = sha1 of (category, **canonical_make**, model, variant, year, mileage-band, province) — **excludes price** so same car at different prices clusters; canonical make so "VW Golf" and "Volkswagen Golf" cluster together. |
@@ -92,7 +92,7 @@ Gumtree (cars/bikes/boats/jetskis)
 - ~240 listings in Supabase; **84 dated** (have a `posted_at`), **10 flagged stale and excluded** (older than 120 days), **205 valid**. Dated coverage grows ~60 listings/run until the full corpus is enriched.
 - Scoring proven **in-memory** on live data (found e.g. a Harley + a boat under market) but **not persisted** (003 pending). Only ~3 cohorts had ≥2 comparables → density is the limiter.
 - Local UI runs at `http://127.0.0.1:8000` (via `dealfinder serve`, background process; restart after code changes). Min-year filter now available.
-- 182 tests passing. All code pushed to GitHub.
+- 193 tests passing. All code pushed to GitHub.
 
 ---
 
@@ -117,7 +117,7 @@ Gumtree (cars/bikes/boats/jetskis)
 
 ---
 
-## 10. Test suite (182)
+## 10. Test suite (193)
 Per-module: config, models, fetch (respx), webuycars (fixture), gumtree (fixture + resilience + dedup + **freshness v2**: `parse_posted_at`, `enrich_posted_at`, detail-page fixture), validity (**stale FATAL flag**), dedup/fingerprint, phone, db (mapping + repos + price + search + alerts + **dated_keys** + **min_year search**), pipeline (incl. scoring runner + enrich wiring), scoring, vehicles, web (TestClient + **min_year field**), cli, alerts, email, smoke. Golden-file HTML fixtures for adapters (no live calls in tests).
 
 ---
@@ -127,7 +127,7 @@ Per-module: config, models, fetch (respx), webuycars (fixture), gumtree (fixture
 - **Scoring density:** few cohorts have ≥2 comparables at ~126 listings → few scored. Fixed over time by scheduled scraping (corpus grows) + more sources.
 - **Make/model heuristic:** slug-based; good for cars/bikes with known makes, weak for boats/jetskis (slugs lack real brands) → poor boat cohorts. `vehicles.py` dictionary helps; extend it.
 - ~~**VW vs Volkswagen** create separate cohorts~~ — **RESOLVED (2026-06-11):** `canonical_make()` in `vehicles.py` is the single alias map (VW↔Volkswagen, Mercedes/Merc↔Mercedes-Benz, Harley↔Harley-Davidson, GWM↔Great Wall, Chev↔Chevrolet); applied at parse time + defensively in the scorer/fingerprint. Extend the `_MAKE_ALIASES` dict to add more.
-- **mileage / GPS / seller-type** not captured by Gumtree adapter → "condition signals" scoring deferred; cohorts ignore mileage.
+- ~~**mileage / GPS / seller-type** not captured~~ — **RESOLVED (Plan 8, 2026-06-11):** `parse_detail()` now extracts mileage, geo lat/lng, province, seller type (+ transmission/fuel/body/colour/drive into `raw`) from detail pages. Still deferred: *using* these in scoring (condition signals, mileage-aware cohorts) and the distance-from-Hartbeespoort filter (geo now available) — both need follow-up work; transmission/fuel as cohort dimensions need a migration. Note: only newly-fetched detail pages are enriched, so coverage grows ~`max_detail_fetches`/run (legacy listings back-fill as re-scraped).
 - **WeBuyCars** only via official dealer API (PoW blocks scraping).
 - **email.py** module name is unconventional (works under absolute imports) — could rename to `mailer.py` later.
 - Local UI server must be manually restarted after code changes (no auto-reload).
@@ -135,7 +135,7 @@ Per-module: config, models, fetch (respx), webuycars (fixture), gumtree (fixture
 ---
 
 ## 12. Git / commit highlights
-master @ `34e5da4`. Notable: Plan 1 skeleton (99c1809..5011679), Plan 2 dedup, Gumtree adapter (1ddc2d3) + dedup fix (eabd5e9) + resilience (433f10a), Plan 5 UI (e4750ec) + blank-filter fix (1be94cd), Plan 3 scoring (1924e01, 9274d6b), make/model dict (8b5fceb), Plan 4 alerts (995e535, 64b7dfa), Plan 7 deploy (66de015), **freshness v2** (0b15fe9), **min-year filter** (34e5da4), **make-alias normalisation** (canonical_make → tighter cohorts).
+master @ `34e5da4`. Notable: Plan 1 skeleton (99c1809..5011679), Plan 2 dedup, Gumtree adapter (1ddc2d3) + dedup fix (eabd5e9) + resilience (433f10a), Plan 5 UI (e4750ec) + blank-filter fix (1be94cd), Plan 3 scoring (1924e01, 9274d6b), make/model dict (8b5fceb), Plan 4 alerts (995e535, 64b7dfa), Plan 7 deploy (66de015), **freshness v2** (0b15fe9), **min-year filter** (34e5da4), **make-alias normalisation** (canonical_make → tighter cohorts), **detail-field extraction** (Plan 8: mileage/geo/province/seller/etc. from detail pages).
 
 ---
 
@@ -143,8 +143,9 @@ master @ `34e5da4`. Notable: Plan 1 skeleton (99c1809..5011679), Plan 2 dedup, G
 **Immediate:**
 1. ~~**Freshness fix**~~ — **DONE (2026-06-11):** `parse_posted_at` + `enrich_posted_at` on detail pages; stale FATAL flag; 10 listings caught on first live run. Coverage grows ~60/run.
 2. ~~**Min model-year filter**~~ — **DONE (2026-06-11):** `search_listings(min_year=...)` + local UI field.
-3. Apply migrations 003/004 + SMTP → scoring/alerts live.
-4. **Lovable production frontend** (real UI) — Lovable app reading Supabase; needs read-only anon key + RLS policies (never the service_role key in-browser). I can supply Lovable prompts + the RLS SQL.
+3. ~~**Make-alias cohorts + detail-field extraction**~~ — **DONE (2026-06-11):** `canonical_make` merges split cohorts; `parse_detail` pulls mileage/geo/province/seller/etc. from detail pages (verified on a live page). **Geo now enables a distance-from-Hartbeespoort filter** — strong next candidate.
+4. Apply migrations 003/004 + SMTP → scoring/alerts live (user-gated).
+5. **Lovable production frontend** (real UI) — Lovable app reading Supabase; needs read-only anon key + RLS policies (never the service_role key in-browser). I can supply Lovable prompts + the RLS SQL.
 
 **Toward the North Star (agentic):**
 4. **More sources / more areas** — additional adapters; parameterise scrapes by SA region/area (suburb/town/province) so "workers" canvass different areas.

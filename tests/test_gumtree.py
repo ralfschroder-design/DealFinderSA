@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from dealfinder.adapters.gumtree import GumtreeAdapter, parse_posted_at
-from dealfinder.models import Category, Listing
+from dealfinder.adapters.gumtree import GumtreeAdapter, parse_detail, parse_posted_at
+from dealfinder.models import Category, Listing, SellerType
 
 FIXTURE = Path(__file__).parent / "fixtures" / "gumtree_cars.html"
 
@@ -318,3 +318,110 @@ def test_enrich_posted_at_tolerates_fetch_failure():
     assert count == 1
     assert listings[0].posted_at is None
     assert listings[1].posted_at == datetime(2026, 4, 24, tzinfo=timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# parse_detail — full detail-page field extraction (Plan 8)
+# ---------------------------------------------------------------------------
+
+def test_parse_detail_core_fields_from_jsonld():
+    d = parse_detail(DETAIL_FIXTURE.read_text(encoding="utf-8"))
+    assert d["make"] == "Toyota"
+    assert d["model"] == "Hilux"
+    assert d["year"] == 2020
+    assert d["price_zar"] == 339900
+    assert d["mileage_km"] == 145000
+    assert d["province"] == "Gauteng"
+    assert d["town"] == "Centurion"
+    assert d["seller_type"] == SellerType.DEALER
+    assert d["posted_at"] == datetime(2026, 4, 24, tzinfo=timezone.utc)
+
+
+def test_parse_detail_geo_coordinates():
+    d = parse_detail(DETAIL_FIXTURE.read_text(encoding="utf-8"))
+    assert d["lat"] == pytest.approx(-25.8603)
+    assert d["lng"] == pytest.approx(28.1894)
+
+
+def test_parse_detail_extras_transmission_fuel_body_colour():
+    d = parse_detail(DETAIL_FIXTURE.read_text(encoding="utf-8"))
+    extras = d["extras"]
+    assert extras["transmission"] == "Manual"
+    assert extras["fuel_type"] == "Diesel"
+    assert extras["body_type"] == "Double Cab"
+    assert extras["colour"] == "White"
+
+
+def test_parse_detail_description_stripped_of_html():
+    d = parse_detail(DETAIL_FIXTURE.read_text(encoding="utf-8"))
+    desc = d["description"]
+    assert "<br" not in desc and "<b>" not in desc
+    assert "145000 km" in desc
+
+
+def test_parse_detail_canonicalises_make():
+    html = '<script type="application/ld+json">{"@type":"Vehicle","brand":"VW","model":"Golf","vehicleModelDate":2018}</script>'
+    d = parse_detail(html)
+    assert d["make"] == "Volkswagen"
+    assert d["model"] == "Golf"
+
+
+def test_parse_detail_skips_model_other():
+    html = '<script type="application/ld+json">{"@type":"Vehicle","brand":"Audi","model":"Other","vehicleModelDate":2014}</script>'
+    d = parse_detail(html)
+    assert d["make"] == "Audi"
+    assert "model" not in d  # "Other" is a placeholder, not a real model
+
+
+def test_parse_detail_province_must_be_a_real_sa_province():
+    html = '<script type="application/ld+json">{"@type":"BreadcrumbList","itemListElement":[{"position":1,"name":"Sandton"}]}</script>'
+    d = parse_detail(html)
+    assert "province" not in d  # a city name must not be mistaken for a province
+
+
+def test_parse_detail_seller_type_private():
+    html = (
+        '<div class="attributes"><div class="attribute">'
+        '<span class="name">For Sale By:</span><span class="value">Private</span>'
+        '</div></div>'
+    )
+    d = parse_detail(html)
+    assert d["seller_type"] == SellerType.PRIVATE
+
+
+def test_parse_detail_empty_returns_empty_dict():
+    assert parse_detail("") == {}
+    assert parse_detail("<html><body>no structured data</body></html>") == {}
+
+
+# ---------------------------------------------------------------------------
+# enrich_posted_at — now applies ALL detail fields, not just the date (Plan 8)
+# ---------------------------------------------------------------------------
+
+def test_enrich_applies_detail_fields_to_listing():
+    fetcher = FakeFetcher(DETAIL_FIXTURE.read_text(encoding="utf-8"))
+    l = _undated_listing("zzz")  # starts with make=None, no mileage/province/geo
+    GumtreeAdapter().enrich_posted_at(fetcher, [l])
+    assert l.make == "Toyota"
+    assert l.model == "Hilux"
+    assert l.year == 2020
+    assert l.mileage_km == 145000
+    assert l.province == "Gauteng"
+    assert l.town == "Centurion"
+    assert l.lat is not None and l.lng is not None
+    assert l.seller_type == SellerType.DEALER
+    assert l.description and "145000 km" in l.description
+    assert l.raw and l.raw.get("transmission") == "Manual"
+
+
+def test_enrich_fills_price_only_when_missing():
+    detail_html = DETAIL_FIXTURE.read_text(encoding="utf-8")
+    # already has a search-card price -> detail price must NOT override it
+    keep = _undated_listing("keep")
+    keep.price_zar = 305000
+    GumtreeAdapter().enrich_posted_at(FakeFetcher(detail_html), [keep])
+    assert keep.price_zar == 305000
+    # no price -> detail price fills it
+    fill = _undated_listing("fill")
+    GumtreeAdapter().enrich_posted_at(FakeFetcher(detail_html), [fill])
+    assert fill.price_zar == 339900
