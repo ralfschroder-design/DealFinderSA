@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dealfinder.db import InMemoryRepository
-from dealfinder.models import Category, Listing
+from dealfinder.models import Category, Listing, SellerType
 from dealfinder.web import create_app
 
 
@@ -285,6 +285,23 @@ def test_within_km_prefilled_in_form(client: TestClient) -> None:
     resp = client.get("/?within_km=75")
     assert resp.status_code == 200
     assert 'value="75"' in resp.text
+
+
+def test_card_shows_mileage_and_seller_type() -> None:
+    r = InMemoryRepository()
+    r.upsert_listings([
+        Listing(
+            source_key="test", source_listing_id="m1", url="https://example.com/m1",
+            category=Category.CAR, title="2019 Toyota Hilux", make="Toyota", model="Hilux",
+            year=2019, price_zar=339900, town="Pretoria", mileage_km=145000,
+            seller_type=SellerType.DEALER, is_valid=True,
+        ),
+    ])
+    c = TestClient(create_app(r))
+    resp = c.get("/")
+    assert resp.status_code == 200
+    assert "145,000 km" in resp.text   # mileage surfaced for triage
+    assert "Dealer" in resp.text        # seller type surfaced
 
 
 def test_xss_escaping() -> None:

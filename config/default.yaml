@@ -18,7 +18,7 @@ validity:
 sources:
   gumtree:
     enabled: true
-    max_pages: 1
+    max_pages: 3        # 3 pages × 4 categories per run → more cohort density
     fetch_detail: true
     max_detail_fetches: 60
   webuycars:

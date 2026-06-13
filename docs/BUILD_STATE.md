@@ -10,7 +10,7 @@
 - Project root: `C:\Users\rschrode\Projects\DealFinderSA` (Windows). Python venv at `.venv`. Run python as `.\.venv\Scripts\python.exe`.
 - Private GitHub repo: `https://github.com/ralfschroder-design/DealFinderSA` (branch `master`). `.env` is git-ignored (holds Supabase + SMTP secrets) — NEVER commit it.
 - DB: Supabase (cloud Postgres). Creds in `.env` (`SUPABASE_URL`, `SUPABASE_KEY` = service_role).
-- Run tests: `.\.venv\Scripts\python.exe -m pytest -q` (currently **211 passing**).
+- Run tests: `.\.venv\Scripts\python.exe -m pytest -q` (currently **212 passing**).
 - CLI: `python -m dealfinder.cli {init-db|run-scrape|score|alert|serve}`.
 - Network ops (scrape/push/serve) need the shell sandbox disabled.
 
@@ -69,7 +69,7 @@ Gumtree (cars/bikes/boats/jetskis)
 | `pipeline.py` | `run_pipeline(...)` (scrape→**enrich_posted_at**→validate→fingerprint→phone→price→upsert, per-source isolation) + `run_scoring(repo)`. |
 | `alerts.py` | `select_new_deals(listings, alerted_keys, min_score)` + `run_alerts(repo, sender, settings)` + `format_digest`. |
 | `email.py` | `EmailSender` — SMTP via smtplib, injectable factory, `is_configured`, `send(subject, body)`. (Module name `email.py` does NOT shadow stdlib under absolute imports — verified.) |
-| `web.py` | `create_app(repo)` FastAPI search UI + `render_page` (escaped). Filters: category/make/q/price/town/valid-only/min_score/**min_year**; sort incl. "Best deal"; deal badges. **Test harness only.** |
+| `web.py` | `create_app(repo)` FastAPI search UI + `render_page` (escaped). Filters: category/make/q/price/town/valid-only/min_score/**min_year**/**within_km** (distance from Hartbeespoort); sort incl. "Best deal"; deal badges; cards show **mileage + seller type**. **Test harness only.** |
 | `cli.py` | argparse CLI: `init-db` (prints all migrations), `run-scrape` (scrape→score→alert, each resilient), `score`, `alert`, `serve --port`. |
 
 ---
@@ -93,14 +93,14 @@ Gumtree (cars/bikes/boats/jetskis)
 - **Live (verified 2026-06-11 after a scrape): 296 listings, 253 valid.** Plan 8 enrichment coverage so far: **37 with geo lat/lng, 37 province, 28 mileage, 33 seller-type known** (grows each run up to `max_detail_fetches`). **5** geolocated listings fall within the 100 km home radius.
 - **Scoring is live & persisted (003 applied):** 15 listings carry a `deal_score` — e.g. a 2015 Land Rover Discovery R319,995 vs ~R335k est. Cohort density is still the limiter (grows with corpus + make-alias merging); boat/bike cohorts remain noisy (slug brands).
 - Local UI runs at `http://127.0.0.1:8000` (via `dealfinder serve`, background process; restart after code changes). Min-year filter now available.
-- 211 tests passing. All code pushed to GitHub.
+- 212 tests passing. All code pushed to GitHub.
 
 ---
 
 ## 7. Sources — status & lessons
 - **Gumtree (PRIMARY, working):** openly-served HTML, no anti-bot challenge on listing pages or detail pages. Covers all 4 categories. Fragile to layout changes (golden-file fixture test). `posted_at` captured from detail-page `availabilityStarts` ISO (freshness v2, see §4).
 - **WeBuyCars (DROPPED for automation):** inventory API (`appgateway.webuycars.co.za/website-elastic-backend/api/search`) requires an `x-proof-of-work-token` anti-bot. We will NOT circumvent it. **Possible future via official dealer API** — Ralf has a dealer/business account; pursue authorised access only.
-- **cars.co.za:** Cloudflare-walled (403 challenge). **autotrader.co.za:** reachable but data behind a JS API + captcha. **automart:** reachable, needs the right URL. All need careful per-source work; check for anti-bot before building.
+- **cars.co.za:** Cloudflare-walled (403 challenge). **autotrader.co.za:** reachable but data behind a JS API + captcha. **automart.co.za:** reachable, **no anti-bot** (checked 2026-06-11) — listings live under `/cars` (+ body-type subpaths) — **but `/cars` is a JS-rendered SPA**: the initial HTML has no listing cards/prices (only a breadcrumb JSON-LD), so scraping it needs **backend-API discovery or headless rendering**, not a static parse like Gumtree. Viable future source; bigger effort. All need careful per-source work; check for anti-bot before building.
 
 ---
 
@@ -118,7 +118,7 @@ Gumtree (cars/bikes/boats/jetskis)
 
 ---
 
-## 10. Test suite (211)
+## 10. Test suite (212)
 Per-module: config, models, fetch (respx), webuycars (fixture), gumtree (fixture + resilience + dedup + **freshness v2**: `parse_posted_at`, `enrich_posted_at`, detail-page fixture), validity (**stale FATAL flag**), dedup/fingerprint, phone, db (mapping + repos + price + search + alerts + **dated_keys** + **min_year search**), pipeline (incl. scoring runner + enrich wiring), scoring, vehicles, web (TestClient + **min_year field**), cli, alerts, email, smoke. Golden-file HTML fixtures for adapters (no live calls in tests).
 
 ---

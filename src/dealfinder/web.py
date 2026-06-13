@@ -101,8 +101,16 @@ def _card_html(listing: Listing) -> str:
     else:
         price_str = "no price"
 
-    town = html.escape(listing.town or "")
-    category_val = html.escape(listing.category.value if listing.category else "")
+    meta_bits: list[str] = []
+    if listing.town:
+        meta_bits.append(html.escape(listing.town))
+    if listing.mileage_km is not None:
+        meta_bits.append(f"{listing.mileage_km:,} km")
+    if listing.category:
+        meta_bits.append(html.escape(listing.category.value))
+    if listing.seller_type and listing.seller_type.value != "unknown":
+        meta_bits.append(html.escape(listing.seller_type.value.title()))
+    meta_line = " · ".join(meta_bits)
     badge_cls = "badge-valid" if listing.is_valid else "badge-invalid"
     badge_txt = "valid" if listing.is_valid else "invalid"
     url = html.escape(listing.url)
@@ -134,7 +142,7 @@ def _card_html(listing: Listing) -> str:
   <div class="card-body">
     <div class="card-title">{html.escape(title_line)}</div>
     <div class="card-price">{html.escape(price_str)}</div>
-    <div class="card-meta">{town}{" · " if town else ""}{category_val}</div>
+    <div class="card-meta">{meta_line}</div>
     <div><span class="badge {badge_cls}">{badge_txt}</span></div>
     {deal_badge_html}
     <div class="card-link"><a href="{url}" target="_blank" rel="noopener">View &rarr;</a></div>
