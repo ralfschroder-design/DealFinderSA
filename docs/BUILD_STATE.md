@@ -84,14 +84,14 @@ Gumtree (cars/bikes/boats/jetskis)
 ### Migrations (`migrations/`) — apply in order via Supabase SQL editor (`dealfinder init-db` prints all):
 - `001_core.sql` — sources, listings (core cols), runs, sources_health. **APPLIED.**
 - `002_clustering.sql` — listings.fingerprint, price_history, vehicle_clusters view. **APPLIED.**
-- `003_scoring.sql` — listings deal-score columns. **NOT applied (user-gated)** → blocks persisted scores/UI-sort/alerts.
-- `004_alerts.sql` — alerts_sent table. **NOT applied (user-gated)** → blocks alert dedup.
+- `003_scoring.sql` — listings deal-score columns. **APPLIED** (verified 2026-06-11: 15 listings carry a persisted `deal_score`; UI "best deal" sort + badges live).
+- `004_alerts.sql` — alerts_sent table. **NOT applied** → email alerts skip with PGRST205 "alerts_sent missing". Apply it (+ set SMTP) to enable alerts.
 
 ---
 
 ## 6. Live state (2026-06-11)
-- ~240 listings in Supabase; **84 dated** (have a `posted_at`), **10 flagged stale and excluded** (older than 120 days), **205 valid**. Dated coverage grows ~60 listings/run until the full corpus is enriched.
-- Scoring proven **in-memory** on live data (found e.g. a Harley + a boat under market) but **not persisted** (003 pending). Only ~3 cohorts had ≥2 comparables → density is the limiter.
+- **Live (verified 2026-06-11 after a scrape): 296 listings, 253 valid.** Plan 8 enrichment coverage so far: **37 with geo lat/lng, 37 province, 28 mileage, 33 seller-type known** (grows each run up to `max_detail_fetches`). **5** geolocated listings fall within the 100 km home radius.
+- **Scoring is live & persisted (003 applied):** 15 listings carry a `deal_score` — e.g. a 2015 Land Rover Discovery R319,995 vs ~R335k est. Cohort density is still the limiter (grows with corpus + make-alias merging); boat/bike cohorts remain noisy (slug brands).
 - Local UI runs at `http://127.0.0.1:8000` (via `dealfinder serve`, background process; restart after code changes). Min-year filter now available.
 - 205 tests passing. All code pushed to GitHub.
 
@@ -111,9 +111,9 @@ Gumtree (cars/bikes/boats/jetskis)
 ---
 
 ## 9. Go-live (to fully activate scoring + alerts)
-1. Apply `003_scoring.sql` + `004_alerts.sql` in Supabase SQL editor (`dealfinder init-db` prints them).
-2. Optionally set SMTP creds in `.env` for email alerts.
-3. `dealfinder run-scrape` then does scrape→score→alert; UI sorts by best deal.
+1. ~~Apply `003_scoring.sql`~~ — **DONE.** Scoring persists; the UI sorts by best deal and shows badges.
+2. Apply `004_alerts.sql` (`dealfinder init-db` prints it) **+ set SMTP creds in `.env`** → enables email alerts (they currently skip: `alerts_sent` table missing).
+3. `dealfinder run-scrape` does scrape→score→alert; scrape + scoring already work live.
 - Scheduling: `docs/deploy.md` (cron from git on a server; `scripts/run_scrape.sh`; Windows test task via `scripts/register_scheduled_task.ps1`).
 
 ---
@@ -146,7 +146,7 @@ master @ `34e5da4`. Notable: Plan 1 skeleton (99c1809..5011679), Plan 2 dedup, G
 2. ~~**Min model-year filter**~~ — **DONE (2026-06-11):** `search_listings(min_year=...)` + local UI field.
 3. ~~**Make-alias cohorts + detail-field extraction**~~ — **DONE (2026-06-11):** `canonical_make` merges split cohorts; `parse_detail` pulls mileage/geo/province/seller/etc. from detail pages (verified on a live page). geo lat/lng captured.
 4. ~~**Distance-from-Hartbeespoort filter**~~ — **DONE (Plan 9):** `geo.haversine_km` + `search_listings(within_km=…, home_lat, home_lng)` across all repos + a "Within km" UI field; keep-unknown-location policy. **Lovable will need an SQL/RPC equivalent** for server-side radius (this Python filter is the reference impl).
-5. Apply migrations 003/004 + SMTP → scoring/alerts live (user-gated).
+5. Apply `004_alerts.sql` + SMTP → email alerts live (003 already applied; scoring live).
 5. **Lovable production frontend** (real UI) — Lovable app reading Supabase; needs read-only anon key + RLS policies (never the service_role key in-browser). I can supply Lovable prompts + the RLS SQL.
 
 **Toward the North Star (agentic):**

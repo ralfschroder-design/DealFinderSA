@@ -67,14 +67,15 @@ Three principles locked 2026-06-08:
 | `https://github.com/ralfschroder-design/DealFinderSA` | Private GitHub repo (all code) |
 
 ## Open Questions & Blockers
-- [ ] **Migration 003 pending** — `003_scoring.sql` must be applied in Supabase to persist scores, show them in the UI, and enable deal-score alerts. This is the immediate live-scoring unlock.
+- [x] ~~**Migration 003 pending**~~ — **APPLIED** (verified 2026-06-11: 15 listings carry persisted `deal_score`; UI best-deal sort + badges live).
+- [ ] **Migration 004 + SMTP** — apply `004_alerts.sql` (creates `alerts_sent`) and set SMTP creds to enable email alerts. Currently alerts skip with PGRST205 "alerts_sent missing".
 - [ ] **SMTP credentials needed** for email alerts (Plan 4). Gmail app password recommended; Office 365 may be locked down by the Sun International tenant.
 - [ ] **Data density** — cohort scoring quality improves as scheduled scraping accumulates more listings over time.
 - [ ] **WeBuyCars** — only viable via an official dealer API (PoW anti-bot blocks automation). Ralf has a dealer account; pursue this as a future Tier-1 enhancement.
 - [ ] Resale/cost assumptions for margin estimate (transport, recon, fees) — set sensible defaults when condition scoring is built (deferred).
 
 ## Next Steps
-1. **Apply `003_scoring.sql`** in the Supabase SQL editor — unlocks persisted deal scores, score display in the local UI, and enables deal-score alerts.
+1. ~~**Apply `003_scoring.sql`**~~ — **DONE** (scoring persists; UI sorts by best deal). Remaining go-live: apply **`004_alerts.sql`** + set SMTP creds → email alerts fire.
 2. **Plan 4 — email alerts** — watch model + SMTP dispatch when a high-scoring listing matches a saved watch.
 3. ~~**Plan 7 — scheduling (git-deploy)**~~ — **DONE 2026-06-10**: `docs/deploy.md`, `scripts/run_scrape.sh`, `scripts/register_scheduled_task.ps1` created. Deploy and schedule docs complete.
 4. ~~**Freshness v2 (stale listing exclusion)**~~ — **DONE 2026-06-11**: detail-page dating + stale FATAL flag; 10 listings caught live.
